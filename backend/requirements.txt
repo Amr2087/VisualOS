@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+langgraph
+google-genai
+python-dotenv
+pydantic
+python-multipart
+pillow
