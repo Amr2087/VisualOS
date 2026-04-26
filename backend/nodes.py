@@ -35,12 +35,6 @@ def generate_image_node(state: PhotoState) -> dict:
     resp = client.models.generate_content(
         model="gemini-3.1-flash-image-preview",
         contents=contents,
-        config=types.GenerateContentConfig(
-            image_config= types.GenerateContentImageConfig(
-                size="4K",
-        ),)
-
-
     )
     image_bytes = None
     for part in resp.parts:
