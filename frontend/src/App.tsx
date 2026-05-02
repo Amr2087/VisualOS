@@ -41,6 +41,8 @@ const fieldLabels: Record<string, string> = {
 const defaultPrompt =
   "Create a full-body editorial fashion image. Use (model) as the person reference and use the product references as the wardrobe pieces. Preserve the products' shapes, materials, colors, and styling details while creating a realistic premium photoshoot.";
 
+const folderUploadProps = { webkitdirectory: "" };
+
 function stemName(file: FileWithRelativePath) {
   const filename = file.webkitRelativePath || file.name;
   const clean = filename.split("/").pop() || filename;
@@ -152,9 +154,9 @@ export function App() {
     form.append("aspect_ratio", aspectRatio);
     form.append("engine_params", engineParams || "{}");
     Object.entries(settings).forEach(([key, value]) => form.append(key, value));
-    modelFiles.forEach((file) => form.append("model_images", file, file.webkitRelativePath || file.name));
-    productFiles.forEach((file) => form.append("product_images", file, file.webkitRelativePath || file.name));
-    folderFiles.forEach((file) => form.append("reference_images", file, file.webkitRelativePath || file.name));
+    modelFiles.forEach((file) => form.append("model_images", file, file.name));
+    productFiles.forEach((file) => form.append("product_images", file, file.name));
+    folderFiles.forEach((file) => form.append("reference_images", file, file.name));
 
     setIsGenerating(true);
     try {
@@ -230,7 +232,7 @@ export function App() {
                   accept="image/png,image/jpeg,image/webp"
                   multiple
                   onChange={onFiles(setFolderFiles)}
-                  {...{ webkitdirectory: "", directory: "" }}
+                  {...folderUploadProps}
                 />
               </label>
             </div>
