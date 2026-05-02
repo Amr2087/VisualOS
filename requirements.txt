@@ -1,6 +1,7 @@
 fastapi
 uvicorn[standard]
 langgraph
+langchain-google-genai
 google-genai
 python-dotenv
 pydantic

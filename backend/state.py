@@ -1,24 +1,32 @@
-import operator
-from typing import Annotated, TypedDict
+from typing import Any, TypedDict
 
 
-class PhotoState(TypedDict):
-    description: str
-    input_images: list[bytes]
-    styles: list[str]
-    lighting: str
+class ReferenceImage(TypedDict):
+    name: str
+    role: str
+    path: str
+    mime_type: str
+    data: bytes
+
+
+class PhotoshootState(TypedDict, total=False):
+    initial_prompt: str
+    products_img_paths: list[str]
+    model_img_paths: list[str]
+    reference_images: list[ReferenceImage]
+    reference_mapping: str
+
+    style_genre: str
+    moodboard_grading: str
     framing: str
-    mood: str
+    camera_angle: str
+    lens_focal_length: str
+    lighting_setup: str
+    environment_setting: str
+    engine_params: dict[str, Any]
+    size: str
     aspect_ratio: str
+
     refined_prompt: str
-    image: bytes | None
-
-
-class ShootState(TypedDict):
-    photos_in: list[dict]
-    styles: list[str]
-    lighting: str
-    framing: str
-    mood: str
-    aspect_ratio: str
-    results: Annotated[list[dict], operator.add]
+    output_image: bytes | None
+    output_mime_type: str

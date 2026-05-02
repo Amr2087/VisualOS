@@ -1,45 +1,75 @@
 # VisualOS
 
-AI photoshoot generator — describe your shots, pick a style, and generate images via Google Gemini.
+LangGraph-powered Gemini photoshoot agent. The user enters a prompt, chooses image
+settings from `backend/style_config.json`, uploads optional named reference images,
+and receives a preview image that can be downloaded.
 
-## Setup
+## Local Setup
 
-**1. Clone and create a virtual environment**
 ```bash
-git clone <repo-url>
-cd VisualOS
 python3 -m venv venv
-source venv/bin/activate   # Windows: venv\Scripts\activate
+source venv/bin/activate
+pip install -r requirements.txt
 ```
 
-**2. Install dependencies**
-```bash
-pip install -r backend/requirements.txt
-```
+Add your Gemini key:
 
-**3. Add your Gemini API key**
 ```bash
 cp .env.example .env
-# then edit .env and paste your key
+# GEMINI_API_KEY=...
 ```
 
-Get a free key at [aistudio.google.com](https://aistudio.google.com/app/apikey).
+If `.env.example` is not present, create `.env` with:
 
-**4. Run**
 ```bash
-streamlit run app.py
+GEMINI_API_KEY=your_api_key_here
 ```
 
-Opens at `http://localhost:8501`.
+## Run Locally
 
-## Usage
+Start the Python API:
 
-- **Create tab** — pick styles + settings, add one or more shot descriptions, optionally upload reference images per shot (enables edit/compose mode), then click **Generate shoot**.
-- **Library tab** — browse all saved shots.
+```bash
+uvicorn backend.api:app --reload --port 8000
+```
 
-## Models used
+Start the TypeScript frontend:
 
-| Node | Model |
-|---|---|
-| Prompt refinement | `gemini-3-flash-preview` |
-| Image generation | `gemini-3.1-flash-image-preview` |
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open `http://localhost:5173`.
+
+## Reference Naming
+
+Reference images are mapped by filename stem. For example:
+
+```text
+ref/
+  model.png
+  product1.png
+  product2.png
+```
+
+Use those names in the prompt:
+
+```text
+Use (model) as the person reference, (product1) as the top, and
+(product2) as the shoes.
+```
+
+The frontend sends folder uploads and individual uploads to the backend. The
+LangGraph agent prepends a reference mapping before refining the prompt, then
+passes the same images to Gemini in that order.
+
+## Deployment
+
+The project includes `vercel.json` with:
+
+- Python FastAPI serverless entrypoint: `api/index.py`
+- Vite static frontend: `frontend/`
+
+Set `GEMINI_API_KEY` in Vercel project environment variables before deploying.
