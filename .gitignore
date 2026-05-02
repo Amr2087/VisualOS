@@ -19,3 +19,4 @@ notebooks/
 .DS_Store
 .claude/
 *.swp
+.vercel
