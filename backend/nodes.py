@@ -26,7 +26,7 @@ def refine_prompt_node(state: PhotoshootState) -> dict:
     system_prompt, user_prompt = build_refine_messages(state)
     llm = ChatGoogleGenerativeAI(
         model=PROMPT_MODEL,
-        temperature=0.7,
+        temperature=0.5,
         google_api_key=os.getenv("GEMINI_API_KEY"),
     )
     response = llm.invoke(

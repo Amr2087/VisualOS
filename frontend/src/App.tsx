@@ -42,11 +42,80 @@ const defaultPrompt =
   "Create a full-body editorial fashion image. Use (model) as the person reference and use the product references as the wardrobe pieces. Preserve the products' shapes, materials, colors, and styling details while creating a realistic premium photoshoot.";
 
 const folderUploadProps = { webkitdirectory: "" };
+const MAX_UPLOAD_BYTES = 4_200_000;
+const MAX_REFERENCE_SIDE = 1280;
+const REFERENCE_JPEG_QUALITY = 0.82;
+const ASPECT_RATIOS = [
+  "1:1",
+  "2:3",
+  "3:2",
+  "3:4",
+  "4:3",
+  "4:5",
+  "5:4",
+  "9:16",
+  "16:9",
+  "21:9"
+];
 
 function stemName(file: FileWithRelativePath) {
   const filename = file.webkitRelativePath || file.name;
   const clean = filename.split("/").pop() || filename;
   return clean.replace(/\.[^.]+$/, "");
+}
+
+function loadImage(file: File): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error(`Could not read ${file.name} as an image.`));
+    };
+    image.src = url;
+  });
+}
+
+async function prepareImageForUpload(file: FileWithRelativePath): Promise<FileWithRelativePath> {
+  const image = await loadImage(file);
+  const scale = Math.min(1, MAX_REFERENCE_SIDE / Math.max(image.naturalWidth, image.naturalHeight));
+  const width = Math.max(1, Math.round(image.naturalWidth * scale));
+  const height = Math.max(1, Math.round(image.naturalHeight * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    throw new Error("Could not prepare image compression.");
+  }
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, width, height);
+  context.drawImage(image, 0, 0, width, height);
+
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (nextBlob) => {
+        if (nextBlob) resolve(nextBlob);
+        else reject(new Error(`Could not compress ${file.name}.`));
+      },
+      "image/jpeg",
+      REFERENCE_JPEG_QUALITY
+    );
+  });
+
+  const compressedName = `${stemName(file)}.jpg`;
+  return new File([blob], compressedName, {
+    type: "image/jpeg",
+    lastModified: file.lastModified
+  }) as FileWithRelativePath;
+}
+
+function totalBytes(files: File[]) {
+  return files.reduce((sum, file) => sum + file.size, 0);
 }
 
 function SelectField({
@@ -148,23 +217,39 @@ export function App() {
       return;
     }
 
-    const form = new FormData();
-    form.append("initial_prompt", prompt);
-    form.append("size", size);
-    form.append("aspect_ratio", aspectRatio);
-    form.append("engine_params", engineParams || "{}");
-    Object.entries(settings).forEach(([key, value]) => form.append(key, value));
-    modelFiles.forEach((file) => form.append("model_images", file, file.name));
-    productFiles.forEach((file) => form.append("product_images", file, file.name));
-    folderFiles.forEach((file) => form.append("reference_images", file, file.name));
-
     setIsGenerating(true);
     try {
+      const [preparedModelFiles, preparedProductFiles, preparedFolderFiles] = await Promise.all([
+        Promise.all(modelFiles.map((file) => prepareImageForUpload(file))),
+        Promise.all(productFiles.map((file) => prepareImageForUpload(file))),
+        Promise.all(folderFiles.map((file) => prepareImageForUpload(file)))
+      ]);
+      const uploadBytes = totalBytes([...preparedModelFiles, ...preparedProductFiles, ...preparedFolderFiles]);
+      if (uploadBytes > MAX_UPLOAD_BYTES) {
+        throw new Error(
+          `Reference uploads are ${(uploadBytes / 1024 / 1024).toFixed(1)} MB after compression. ` +
+            "Vercel functions accept about 4.5 MB per request, so use fewer references or smaller images."
+        );
+      }
+
+      const form = new FormData();
+      form.append("initial_prompt", prompt);
+      form.append("size", size);
+      form.append("aspect_ratio", aspectRatio);
+      form.append("engine_params", engineParams || "{}");
+      Object.entries(settings).forEach(([key, value]) => form.append(key, value));
+      preparedModelFiles.forEach((file) => form.append("model_images", file, file.name));
+      preparedProductFiles.forEach((file) => form.append("product_images", file, file.name));
+      preparedFolderFiles.forEach((file) => form.append("reference_images", file, file.name));
+
       const response = await fetch("/api/generate", {
         method: "POST",
         body: form
       });
-      const data = await response.json();
+      const contentType = response.headers.get("content-type") || "";
+      const data = contentType.includes("application/json")
+        ? await response.json()
+        : { detail: await response.text() };
       if (!response.ok) {
         throw new Error(data.detail || "Generation failed.");
       }
@@ -269,11 +354,11 @@ export function App() {
               <label className="field">
                 <span>Aspect Ratio</span>
                 <select value={aspectRatio} onChange={(event) => setAspectRatio(event.target.value)}>
-                  <option value="1:1">1:1</option>
-                  <option value="4:3">4:3</option>
-                  <option value="3:4">3:4</option>
-                  <option value="16:9">16:9</option>
-                  <option value="9:16">9:16</option>
+                  {ASPECT_RATIOS.map((ratio) => (
+                    <option key={ratio} value={ratio}>
+                      {ratio}
+                    </option>
+                  ))}
                 </select>
               </label>
             </div>

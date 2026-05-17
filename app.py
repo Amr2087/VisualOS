@@ -35,9 +35,15 @@ MOOD = [
 ]
 ASPECT = [
     ("1:1", "1:1 Square"),
+    ("2:3", "2:3 Tall Portrait"),
+    ("3:2", "3:2 Classic Landscape"),
+    ("3:4", "3:4 Portrait"),
+    ("4:3", "4:3 Fullscreen"),
     ("4:5", "4:5 Portrait"),
+    ("5:4", "5:4 Landscape"),
     ("9:16", "9:16 Stories"),
     ("16:9", "16:9 Landscape"),
+    ("21:9", "21:9 Ultrawide"),
 ]
 
 OUTPUTS = Path(__file__).parent / "backend" / "outputs"

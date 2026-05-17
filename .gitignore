@@ -11,9 +11,11 @@ __pycache__/
 
 # Generated outputs
 backend/outputs/
+outputs/
 frontend/dist/
 frontend/node_modules/
 notebooks/
+/outputsa
 .env
 # IDE / OS
 .DS_Store
