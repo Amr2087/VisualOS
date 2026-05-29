@@ -2,9 +2,7 @@ import base64
 import hashlib
 import json
 import os
-import re
 import time
-from io import BytesIO
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -12,10 +10,7 @@ from urllib.parse import urlparse
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from google import genai
-from google.genai import types
 import httpx
-from PIL import Image
 from pydantic import BaseModel, Field
 
 from .config import load_style_config
@@ -84,36 +79,6 @@ class ShopifyProductPublishRequest(BaseModel):
     branch: str | None = None
     price: float | None = None
     sizes: list[ShopifyProductSizeQuantity] = Field(default_factory=list)
-
-
-class ProductMetadataRequest(BaseModel):
-    image_base64: str = Field(..., min_length=1)
-    mime_type: str = "image/png"
-    sku: str = ""
-    hints: str = ""
-
-
-class ShopifyBatchProduct(BaseModel):
-    id: str = Field(..., min_length=1)
-    generated_image_base64: str = Field(..., min_length=1)
-    generated_image_mime_type: str = "image/png"
-    title: str = Field(..., min_length=1)
-    description: str = ""
-    sku: str = Field(..., min_length=1)
-    branch: str | None = None
-    price: float | None = None
-    sizes: list[ShopifyProductSizeQuantity] = Field(default_factory=list)
-
-
-class ShopifyBatchPublishRequest(BaseModel):
-    shop_domain: str = Field(..., min_length=1)
-    shopify_client_id: str | None = None
-    shopify_client_secret: str | None = None
-    admin_access_token: str | None = None
-    admin_api_version: str | None = None
-    location_id: str | None = None
-    publication_id: str | None = None
-    products: list[ShopifyBatchProduct] = Field(default_factory=list)
 
 
 @app.get("/api/health")
@@ -359,68 +324,6 @@ def _format_variant_price(price: float | None) -> str:
     return f"{price or 0:.2f}"
 
 
-def _decode_base64_image(image_base64: str) -> bytes:
-    payload = image_base64.split(",", 1)[1] if "," in image_base64[:80] else image_base64
-    try:
-        return base64.b64decode(payload, validate=True)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="Image payload must be valid base64.") from exc
-
-
-def _image_extension(mime_type: str) -> str:
-    normalized = mime_type.lower().split(";", 1)[0].strip()
-    if normalized == "image/jpeg":
-        return "jpg"
-    if normalized == "image/webp":
-        return "webp"
-    return "png"
-
-
-def _safe_filename(value: str, mime_type: str) -> str:
-    stem = re.sub(r"[^a-zA-Z0-9._-]+", "-", value.strip()).strip("-._") or "product-image"
-    return f"{stem[:80]}.{_image_extension(mime_type)}"
-
-
-def _idempotency_key(prefix: str, payload: Any) -> str:
-    payload_json = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
-    digest = hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
-    return f"{prefix}-{digest[:48]}"
-
-
-def _extract_text_response(response: Any) -> str:
-    if getattr(response, "text", None):
-        return str(response.text).strip()
-    parts = []
-    if getattr(response, "parts", None):
-        parts = list(response.parts)
-    else:
-        for candidate in getattr(response, "candidates", []) or []:
-            content = getattr(candidate, "content", None)
-            parts.extend(getattr(content, "parts", []) or [])
-    texts = [str(getattr(part, "text", "")).strip() for part in parts if getattr(part, "text", None)]
-    return "\n".join(text for text in texts if text).strip()
-
-
-def _parse_json_object_text(text: str) -> dict[str, Any]:
-    clean_text = text.strip()
-    if clean_text.startswith("```"):
-        clean_text = re.sub(r"^```(?:json)?", "", clean_text).strip()
-        clean_text = re.sub(r"```$", "", clean_text).strip()
-    match = re.search(r"\{.*\}", clean_text, flags=re.DOTALL)
-    if match:
-        clean_text = match.group(0)
-    try:
-        parsed = json.loads(clean_text)
-    except json.JSONDecodeError as exc:
-        raise HTTPException(
-            status_code=502,
-            detail={"message": "Gemini metadata response was not valid JSON.", "response": text},
-        ) from exc
-    if not isinstance(parsed, dict):
-        raise HTTPException(status_code=502, detail={"message": "Gemini metadata response must be a JSON object.", "response": text})
-    return parsed
-
-
 async def _call_shopify_admin_graphql(
     shop_domain: str,
     query: str,
@@ -476,94 +379,6 @@ async def _call_shopify_admin_graphql(
     return data
 
 
-async def _upload_shopify_product_image(
-    shop_domain: str,
-    image_bytes: bytes,
-    mime_type: str,
-    filename: str,
-    admin_access_token: str | None = None,
-    client_id: str | None = None,
-    client_secret: str | None = None,
-    api_version: str | None = None,
-) -> dict[str, Any]:
-    staged_data = await _call_shopify_admin_graphql(
-        shop_domain,
-        """
-        mutation VisualOSStagedUpload($input: [StagedUploadInput!]!) {
-          stagedUploadsCreate(input: $input) {
-            stagedTargets {
-              url
-              resourceUrl
-              parameters {
-                name
-                value
-              }
-            }
-            userErrors {
-              field
-              message
-            }
-          }
-        }
-        """,
-        {
-            "input": [
-                {
-                    "resource": "IMAGE",
-                    "filename": filename,
-                    "mimeType": mime_type,
-                    "httpMethod": "POST",
-                }
-            ]
-        },
-        admin_access_token=admin_access_token,
-        client_id=client_id,
-        client_secret=client_secret,
-        api_version=api_version,
-    )
-    staged_result = staged_data.get("data", {}).get("stagedUploadsCreate", {})
-    _check_shopify_user_errors(staged_result.get("userErrors"), "stage product image upload")
-    staged_targets = staged_result.get("stagedTargets") or []
-    if not staged_targets:
-        raise HTTPException(status_code=502, detail={"message": "Shopify did not return a staged upload target.", "response": staged_data})
-
-    target = staged_targets[0]
-    upload_url = target.get("url")
-    resource_url = target.get("resourceUrl")
-    if not upload_url or not resource_url:
-        raise HTTPException(status_code=502, detail={"message": "Shopify staged upload target was incomplete.", "target": target})
-
-    form_data = {item["name"]: item["value"] for item in target.get("parameters", []) if item.get("name") is not None}
-    try:
-        async with httpx.AsyncClient(timeout=SHOPIFY_TIMEOUT_SECONDS * 3) as client:
-            response = await client.post(
-                upload_url,
-                data=form_data,
-                files={"file": (filename, image_bytes, mime_type)},
-            )
-    except httpx.TimeoutException as exc:
-        raise HTTPException(status_code=504, detail=f"Shopify staged image upload timed out for {upload_url}.") from exc
-    except httpx.RequestError as exc:
-        raise HTTPException(status_code=502, detail=f"Could not upload staged image to Shopify: {exc}") from exc
-
-    if response.status_code >= 400:
-        raise HTTPException(
-            status_code=502,
-            detail={
-                "message": f"Shopify staged image upload returned HTTP {response.status_code}.",
-                "upload_url": upload_url,
-                **_response_preview(response),
-            },
-        )
-
-    return {
-        "filename": filename,
-        "mime_type": mime_type,
-        "resource_url": resource_url,
-        "upload_status_code": response.status_code,
-    }
-
-
 async def _resolve_shopify_location_id(
     shop_domain: str,
     branch: str | None,
@@ -577,10 +392,8 @@ async def _resolve_shopify_location_id(
     if branch_value.startswith("gid://shopify/Location/"):
         return branch_value
     configured_location_id = (fallback_location_id or SHOPIFY_ADMIN_LOCATION_ID).strip()
-    if not branch_value and configured_location_id.startswith("gid://shopify/Location/"):
-        return configured_location_id
     if not branch_value and configured_location_id:
-        branch_value = configured_location_id
+        return configured_location_id
     if not branch_value:
         return None
 
@@ -845,13 +658,9 @@ async def _set_shopify_inventory_quantities(
     location_id: str | None,
     variants: list[dict[str, Any]],
     size_rows: list[ShopifyProductSizeQuantity],
-) -> dict[str, Any]:
+) -> dict[str, Any] | None:
     if not location_id:
-        return {
-            "status": "skipped",
-            "reason": "missing_location_id",
-            "message": "Inventory was skipped because no Shopify Location ID or resolvable branch was provided.",
-        }
+        return None
 
     quantities = []
     for variant, row in zip(variants, size_rows, strict=False):
@@ -863,89 +672,16 @@ async def _set_shopify_inventory_quantities(
                 "inventoryItemId": inventory_item_id,
                 "locationId": location_id,
                 "quantity": row.qty,
-                "changeFromQuantity": None,
             }
         )
     if not quantities:
-        return {
-            "status": "skipped",
-            "reason": "missing_inventory_item_ids",
-            "message": "Inventory was skipped because Shopify did not return inventory item IDs for the created variants.",
-        }
+        return None
 
-    activation_results = []
-    for quantity in quantities:
-        activation_variables = {
-            "inventoryItemId": quantity["inventoryItemId"],
-            "locationId": quantity["locationId"],
-            "available": quantity["quantity"],
-        }
-        activation_variables["idempotencyKey"] = _idempotency_key("visualos-activate", activation_variables)
-        activation_data = await _call_shopify_admin_graphql(
-            shop_domain,
-            """
-            mutation ActivateVisualOSInventory(
-              $inventoryItemId: ID!
-              $locationId: ID!
-              $available: Int
-              $idempotencyKey: String!
-            ) {
-              inventoryActivate(inventoryItemId: $inventoryItemId, locationId: $locationId, available: $available)
-                @idempotent(key: $idempotencyKey) {
-                inventoryLevel {
-                  id
-                  quantities(names: ["available"]) {
-                    name
-                    quantity
-                  }
-                  item {
-                    id
-                    sku
-                  }
-                  location {
-                    id
-                    name
-                  }
-                }
-                userErrors {
-                  field
-                  message
-                }
-              }
-            }
-            """,
-            activation_variables,
-            admin_access_token=request.admin_access_token,
-            client_id=request.shopify_client_id,
-            client_secret=request.shopify_client_secret,
-            api_version=request.admin_api_version,
-        )
-        activation_result = activation_data.get("data", {}).get("inventoryActivate", {})
-        activation_results.append(
-            {
-                "inventory_item_id": quantity["inventoryItemId"],
-                "inventory_level": activation_result.get("inventoryLevel"),
-                "user_errors": activation_result.get("userErrors") or [],
-            }
-        )
-
-    if activation_results and not any(result["user_errors"] for result in activation_results):
-        return {
-            "status": "activated",
-            "location_id": location_id,
-            "activation_results": activation_results,
-        }
-
-    set_input = {
-        "reason": "correction",
-        "name": "available",
-        "quantities": quantities,
-    }
     data = await _call_shopify_admin_graphql(
         shop_domain,
         """
-        mutation SetVisualOSInventory($input: InventorySetQuantitiesInput!, $idempotencyKey: String!) {
-          inventorySetQuantities(input: $input) @idempotent(key: $idempotencyKey) {
+        mutation SetVisualOSInventory($input: InventorySetQuantitiesInput!) {
+          inventorySetQuantities(input: $input) {
             inventoryAdjustmentGroup {
               reason
               changes {
@@ -971,8 +707,12 @@ async def _set_shopify_inventory_quantities(
         }
         """,
         {
-            "input": set_input,
-            "idempotencyKey": _idempotency_key("visualos-set", set_input),
+            "input": {
+                "reason": "correction",
+                "name": "available",
+                "ignoreCompareQuantity": True,
+                "quantities": quantities,
+            }
         },
         admin_access_token=request.admin_access_token,
         client_id=request.shopify_client_id,
@@ -981,12 +721,7 @@ async def _set_shopify_inventory_quantities(
     )
     inventory_result = data.get("data", {}).get("inventorySetQuantities", {})
     _check_shopify_user_errors(inventory_result.get("userErrors"), "set inventory quantities")
-    return {
-        "status": "set",
-        "location_id": location_id,
-        "activation_results": activation_results,
-        "inventory_adjustment_group": inventory_result.get("inventoryAdjustmentGroup"),
-    }
+    return inventory_result.get("inventoryAdjustmentGroup")
 
 
 async def _create_shopify_product(shop_domain: str, request: ShopifyProductPublishRequest) -> dict[str, Any]:
@@ -1159,203 +894,6 @@ async def generate(
         "reference_mapping": final_state.get("reference_mapping", ""),
         "mime_type": mime_type,
         "image_base64": base64.b64encode(output_image).decode("utf-8"),
-    }
-
-
-@app.post("/api/products/generate-image")
-async def generate_product_image(
-    sku: str = Form(""),
-    image_mode: str = Form("photoshoot"),
-    user_hints: str = Form(""),
-    style_genre: str = Form("high_end_ecommerce"),
-    moodboard_grading: str = Form("flash_editorial"),
-    framing: str = Form("full_body"),
-    camera_angle: str = Form("eye_level"),
-    lens_focal_length: str = Form("auto"),
-    lighting_setup: str = Form("softbox_diffused"),
-    environment_setting: str = Form("seamless_neutral"),
-    engine_params: str | None = Form(None),
-    size: str = Form("1K"),
-    aspect_ratio: str = Form("1:1"),
-    product_images: list[UploadFile] = File(default=[]),
-) -> dict[str, Any]:
-    mode = image_mode.strip().lower()
-    if mode not in {"photoshoot", "flat_lay"}:
-        raise HTTPException(status_code=400, detail="image_mode must be either photoshoot or flat_lay.")
-    if not product_images:
-        raise HTTPException(status_code=400, detail="Upload at least one product image.")
-
-    product_refs = await _read_references(product_images, "product")
-    product_names = ", ".join(f"({ref['name']})" for ref in product_refs)
-    hint_text = user_hints.strip()
-    if mode == "flat_lay":
-        initial_prompt = (
-            f"Create a clean premium e-commerce flat-lay image for SKU {sku or 'unspecified'}. "
-            f"Use product references {product_names}. Arrange the product naturally from a true overhead angle on a refined neutral surface. "
-            "No model, no mannequin, no hands, no extra props unless they are minimal and do not distract. Preserve the product identity, "
-            "materials, silhouette, colors, and design details. The final image should feel ready for a Shopify product page."
-        )
-        framing = "product_detail"
-        camera_angle = "top_down"
-        environment_setting = "seamless_neutral"
-    else:
-        initial_prompt = (
-            f"Create a premium Shopify product photoshoot image for SKU {sku or 'unspecified'}. "
-            f"Use product references {product_names}. Preserve the product identity, materials, silhouette, colors, and design details. "
-            "Make it polished, realistic, commercial, and ready for an e-commerce product page."
-        )
-    if hint_text:
-        initial_prompt = f"{initial_prompt} User notes: {hint_text}"
-
-    graph = build_graph()
-    final_state = graph.invoke(
-        {
-            "initial_prompt": initial_prompt,
-            "products_img_paths": [ref["path"] for ref in product_refs],
-            "model_img_paths": [],
-            "reference_images": product_refs,
-            "style_genre": style_genre,
-            "moodboard_grading": moodboard_grading,
-            "framing": framing,
-            "camera_angle": camera_angle,
-            "lens_focal_length": lens_focal_length,
-            "lighting_setup": lighting_setup,
-            "environment_setting": environment_setting,
-            "engine_params": _parse_engine_params(engine_params),
-            "size": size,
-            "aspect_ratio": aspect_ratio,
-            "refined_prompt": "",
-            "output_image": None,
-            "output_mime_type": "image/png",
-        }
-    )
-    output_image = final_state.get("output_image")
-    if not output_image:
-        raise HTTPException(status_code=502, detail="No image was returned by Gemini.")
-
-    mime_type = final_state.get("output_mime_type", "image/png")
-    return {
-        "image_mode": mode,
-        "refined_prompt": final_state.get("refined_prompt", ""),
-        "reference_mapping": final_state.get("reference_mapping", ""),
-        "mime_type": mime_type,
-        "image_base64": base64.b64encode(output_image).decode("utf-8"),
-    }
-
-
-@app.post("/api/products/generate-metadata")
-async def generate_product_metadata(request: ProductMetadataRequest) -> dict[str, str]:
-    image_bytes = _decode_base64_image(request.image_base64)
-    try:
-        image = Image.open(BytesIO(image_bytes))
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail="Generated image could not be read.") from exc
-
-    prompt = f"""You are an expert Shopify catalog copywriter.
-Analyze the product image and return strict JSON only with:
-{{"title":"...", "description":"..."}}
-
-Requirements:
-- Title should be concise, searchable, and product-page ready.
-- Description should be 2-4 polished sentences focused on visible product features.
-- Do not invent brand names, materials, sizes, or claims that are not visually supported.
-- SKU/context: {request.sku or "unspecified"}
-- User hints: {request.hints or "none"}"""
-    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-    response = client.models.generate_content(
-        model=os.getenv("GEMINI_METADATA_MODEL", os.getenv("GEMINI_PROMPT_MODEL", "gemini-3-flash-preview")),
-        contents=[prompt, image],
-        config=types.GenerateContentConfig(response_modalities=["TEXT"]),
-    )
-    parsed = _parse_json_object_text(_extract_text_response(response))
-    return {
-        "title": str(parsed.get("title", "")).strip(),
-        "description": str(parsed.get("description", "")).strip(),
-    }
-
-
-async def _publish_one_batch_product(shop_domain: str, request: ShopifyBatchPublishRequest, product: ShopifyBatchProduct) -> dict[str, Any]:
-    image_bytes = _decode_base64_image(product.generated_image_base64)
-    filename = _safe_filename(product.sku, product.generated_image_mime_type)
-    media_upload = await _upload_shopify_product_image(
-        shop_domain,
-        image_bytes,
-        product.generated_image_mime_type,
-        filename,
-        admin_access_token=request.admin_access_token,
-        client_id=request.shopify_client_id,
-        client_secret=request.shopify_client_secret,
-        api_version=request.admin_api_version,
-    )
-    publish_request = ShopifyProductPublishRequest(
-        shop_domain=shop_domain,
-        shopify_client_id=request.shopify_client_id,
-        shopify_client_secret=request.shopify_client_secret,
-        admin_access_token=request.admin_access_token,
-        admin_api_version=request.admin_api_version,
-        location_id=request.location_id,
-        publication_id=request.publication_id,
-        img=media_upload["resource_url"],
-        desc=product.description,
-        title=product.title,
-        sku=product.sku,
-        branch=product.branch,
-        price=product.price,
-        sizes=product.sizes,
-    )
-    result = await _create_shopify_product(shop_domain, publish_request)
-    inventory_result = result.get("inventory_adjustment") or {}
-    return {
-        "local_id": product.id,
-        "ok": True,
-        "product": result.get("product"),
-        "variants": result.get("variants", []),
-        "variant_count": len(result.get("variants", [])),
-        "media_upload": media_upload,
-        "media_status": "uploaded",
-        "inventory_status": inventory_result.get("status", "unknown"),
-        "inventory": inventory_result,
-        "location_id": result.get("location_id"),
-        "published": result.get("published", False),
-        "publication": result.get("publication"),
-    }
-
-
-@app.post("/api/products/publish-batch")
-async def publish_product_batch(request: ShopifyBatchPublishRequest) -> dict[str, Any]:
-    shop_domain = _normalize_shop_domain(request.shop_domain)
-    if not request.products:
-        raise HTTPException(status_code=400, detail="At least one approved product is required.")
-
-    results = []
-    for product in request.products:
-        try:
-            results.append(await _publish_one_batch_product(shop_domain, request, product))
-        except HTTPException as exc:
-            results.append(
-                {
-                    "local_id": product.id,
-                    "ok": False,
-                    "error": exc.detail,
-                    "status_code": exc.status_code,
-                }
-            )
-        except Exception as exc:
-            results.append(
-                {
-                    "local_id": product.id,
-                    "ok": False,
-                    "error": str(exc),
-                    "status_code": 500,
-                }
-            )
-
-    return {
-        "shop_domain": shop_domain,
-        "total": len(results),
-        "succeeded": sum(1 for result in results if result.get("ok")),
-        "failed": sum(1 for result in results if not result.get("ok")),
-        "results": results,
     }
 
 

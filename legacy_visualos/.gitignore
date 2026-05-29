@@ -1,0 +1,24 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Environment
+
+
+# Generated outputs
+backend/outputs/
+outputs/
+frontend/dist/
+frontend/node_modules/
+notebooks/
+/outputsa
+.env
+# IDE / OS
+.DS_Store
+.claude/
+*.swp
+.vercel

@@ -1,0 +1,292 @@
+{
+  "photoshootConfig": {
+    "style_genre": {
+      "label": "Style / Genre",
+      "description": "The overarching photographic discipline and intent.",
+      "options": {
+        "high_end_ecommerce": {
+          "label": "High-End E-commerce",
+          "subtitle": "Pristine, commercial focus",
+          "description": "Hyper-realistic, pristine commercial photography designed to sell a product. Features flawless color accuracy, sharp edge-to-edge focus, zero distracting artifacts, and perfectly retouched matte skin. The garment or product is the absolute hero, with every seam and texture crisply defined."
+        },
+        "lo_fi_2000s_digicam": {
+          "label": "Lo-Fi 2000s Digicam",
+          "subtitle": "Raw, nostalgic, candid",
+          "description": "Emulates an early 2000s point-and-shoot digital camera snapshot. Features digital noise, slight pixelation, flat high-key exposure, washed-out highlights, and an unposed, candid, lived-in documentary feel."
+        },
+        "vintage_editorial": {
+          "label": "Vintage Editorial",
+          "subtitle": "35mm film, subtle grain",
+          "description": "A classic fashion magazine aesthetic shot on 35mm film stock. Characterized by subtle film grain, slightly lifted (faded) blacks, soft highlight roll-off, natural micro-contrast, and a nostalgic but highly professional artistic framing."
+        },
+        "cinematic_lifestyle": {
+          "label": "Cinematic / Lifestyle",
+          "subtitle": "Narrative-driven, rich",
+          "description": "Looks like a still frame pulled from a high-budget modern film. Features rich color grading, deep atmospheric storytelling, motivated lighting (light that feels like it comes from the environment), and a deliberate use of depth of field to separate the subject from the background."
+        },
+        "minimalist_studio": {
+          "label": "Minimalist Studio",
+          "subtitle": "Clean, stark, modern",
+          "description": "A contemporary, ultra-clean aesthetic. Utilizes stark negative space, geometric framing, and a complete absence of clutter. The mood is calm, modern, and highly structural, focusing on shapes and silhouettes."
+        },
+        "documentary": {
+          "label": "Documentary",
+          "subtitle": "Unposed, lived-in realism",
+          "description": "Raw and authentic street or photojournalism style. Subjects are not posing for the camera; they are captured in natural mid-motion or thought. Flaws in the environment are kept to enhance realism."
+        }
+      }
+    },
+    "moodboard_grading": {
+      "label": "Moodboard / Grading",
+      "description": "The color palette, lighting contrast, and emotional atmosphere.",
+      "options": {
+        "flash_editorial": {
+          "label": "Flash Editorial",
+          "subtitle": "Harsh, high-key, desaturated",
+          "description": "Edgy, stark fashion photography. Uses harsh direct light that blows out the scene uniformly, creating hard, distinct drop-shadows on the wall behind the subject. The color palette features soft neutrals, desaturated skin tones, and a cool, gritty urban wash."
+        },
+        "street_photography": {
+          "label": "Street Photography",
+          "subtitle": "Natural, moody, contrasty",
+          "description": "Gritty, high-contrast grading with deep, rich blacks. Colors are grounded in reality but slightly muted to emphasize urban textures like concrete, asphalt, and brick."
+        },
+        "warm_ambient": {
+          "label": "Warm Ambient",
+          "subtitle": "Rich midtones, amber, tungsten",
+          "description": "An inviting, opulent, and calm atmosphere. Dominated by warm amber, tungsten, and golden lighting. The color palette heavily relies on rich midtones like espresso, walnut, camel, tobacco leather, cream, and muted burgundy. Shadows are soft and diffused."
+        },
+        "mystique_city": {
+          "label": "Mystique City",
+          "subtitle": "Cold fog, neon reflections, desaturated",
+          "description": "A moody, atmospheric night aesthetic. Heavily features thick cold fog or mist that flattens the background, wet pavement reflecting muted neon signs, and a cold color palette of slate, charcoal, icy blue, and desaturated navy."
+        },
+        "clean_luxury": {
+          "label": "Clean Luxury",
+          "subtitle": "Soft pastels, airy, high-clarity",
+          "description": "Expensive, resort-like luxury. High clarity, incredibly soft pastel tones, bright whites, and an airy, breathable atmosphere. Shadow contrast is minimized to create a light, floating, flawless mood."
+        },
+        "dark_academia": {
+          "label": "Dark Academia",
+          "subtitle": "Moody, warm, deep shadows",
+          "description": "A moody, intellectual vibe. Features deep, crushing shadows (low-key lighting) and a palette of dark greens, navy, mahogany, and brass. The mood is introspective, quiet, and slightly gothic."
+        }
+      }
+    },
+    "framing": {
+      "label": "Framing",
+      "description": "How much of the subject occupies the canvas.",
+      "options": {
+        "extreme_closeup": {
+          "label": "Extreme Close-Up",
+          "subtitle": "Macro details",
+          "description": "Focuses entirely on a specific detail. A tightly cropped shot showing only the texture of the fabric, the stitching of a shoe, or the eyes of a character."
+        },
+        "closeup": {
+          "label": "Close-Up",
+          "subtitle": "Headshot / upper chest",
+          "description": "Framed tightly from the shoulders or upper chest to the top of the head. Focuses heavily on the subject's face, expression, and neckline details."
+        },
+        "medium_shot": {
+          "label": "Medium Shot",
+          "subtitle": "Waist up",
+          "description": "Framed from the waist up. Balances the subject's upper body styling and facial expression while revealing some of the background environment."
+        },
+        "three_quarter": {
+          "label": "Three-Quarter",
+          "subtitle": "Knees up, seated",
+          "description": "Framed from just below the knees or mid-thigh up. Perfect for capturing seated subjects or showcasing trousers and jackets while still maintaining a portrait feel."
+        },
+        "full_body": {
+          "label": "Full Body Shot",
+          "subtitle": "Head to toe",
+          "description": "The entire subject is visible from the top of their head to their footwear, with some breathing room around them. Captures the complete silhouette and outfit."
+        },
+        "wide_establishing": {
+          "label": "Wide / Establishing",
+          "subtitle": "Subject in environment",
+          "description": "A pulled-back shot where the subject is relatively small within the frame. The primary focus is on showcasing the scale, architecture, and mood of the surrounding environment."
+        }
+      }
+    },
+    "camera_angle": {
+      "label": "Camera Angle",
+      "description": "The camera's physical relationship to the subject.",
+      "options": {
+        "eye_level": {
+          "label": "Eye-Level",
+          "subtitle": "Neutral, standard",
+          "description": "The camera points straight ahead at the subject's eye level. Creates a natural, grounded, and objective viewpoint."
+        },
+        "low_angle": {
+          "label": "Low Angle",
+          "subtitle": "Heroic, imposing",
+          "description": "The camera is positioned below the subject, pointing upward. Makes the subject look powerful, tall, imposing, and fashionable. Elevates the visual status of the character."
+        },
+        "high_angle": {
+          "label": "High Angle",
+          "subtitle": "Vulnerable, overview",
+          "description": "The camera is positioned above the subject, pointing downward. Can make the subject look smaller or provide a clear view of the ground/floor styling around them."
+        },
+        "overhead_flatlay": {
+          "label": "Overhead / Flat-lay",
+          "subtitle": "Product focus",
+          "description": "The camera is positioned directly above, pointing straight down at a 90-degree angle. Ideal for arranged products, accessories, or subjects lying perfectly flat on the ground."
+        },
+        "dutch_angle": {
+          "label": "Dutch Angle",
+          "subtitle": "Canted, dynamic",
+          "description": "The camera is tilted on its roll axis, causing the horizon line to be slanted. Creates a feeling of unease, dynamic motion, or edgy avant-garde fashion."
+        },
+        "over_shoulder": {
+          "label": "Over-the-Shoulder",
+          "subtitle": "Intimate, observational",
+          "description": "Shot from behind a foreground element (like another person's shoulder). Creates a voyeuristic, documentary, or highly intimate framing."
+        }
+      }
+    },
+    "lens_focal_length": {
+      "label": "Lens / Focal Length",
+      "description": "The optical physics that distort or flatten the image.",
+      "options": {
+        "wide": {
+          "label": "Wide",
+          "subtitle": "14-24mm (Dramatic, distorted edges)",
+          "description": "Captures a massive field of view. Edges of the frame will stretch and distort slightly. Creates a dynamic, immersive, and sometimes exaggerated perspective."
+        },
+        "standard": {
+          "label": "Standard",
+          "subtitle": "35-50mm (Natural, documentary)",
+          "description": "Closely mimics the field of view of the human eye. Produces zero distortion. The standard choice for documentary, street, and realistic lifestyle photography."
+        },
+        "portrait": {
+          "label": "Portrait",
+          "subtitle": "85mm (Flattering, subject separation)",
+          "description": "Compresses the subject's features flatteringly. Naturally creates a shallow depth of field (blurry background/bokeh), isolating the subject from their surroundings beautifully."
+        },
+        "telephoto": {
+          "label": "Telephoto",
+          "subtitle": "135mm+ (High compression, flat background)",
+          "description": "Extreme zoom that flattens the distance between the subject and the background. Background elements appear massive and right behind the subject. Excellent for isolating subjects in busy environments."
+        },
+        "macro": {
+          "label": "Macro",
+          "subtitle": "100mm (Extreme product detail)",
+          "description": "Specialized optics for focusing incredibly close to the subject. Exaggerates the micro-textures of materials, leathers, metals, and fabrics with an extremely shallow depth of field."
+        },
+        "auto": {
+          "label": "Auto",
+          "subtitle": "Dynamic selection",
+          "description": "Allow the LLM to dynamically select the best focal length based on the chosen Framing parameter."
+        }
+      }
+    },
+    "lighting_setup": {
+      "label": "Lighting Setup",
+      "description": "The source, direction, and quality of illumination.",
+      "options": {
+        "direct_onamera_flash": {
+          "label": "Direct On-Camera Flash",
+          "subtitle": "Paparazzi, flat exposure",
+          "description": "A harsh, bright burst of light coming from the exact center of the camera. Eliminates facial shadows but creates hard, dark silhouettes immediately behind the subject. Highly reflective on wet surfaces and hardware."
+        },
+        "softbox_diffused": {
+          "label": "Softbox / Diffused Studio",
+          "subtitle": "Even, commercial soft falloff",
+          "description": "Flattering, even, and soft illumination. Shadows have smooth, gradual gradients (soft falloff). The gold standard for commercial and e-commerce product clarity."
+        },
+        "hard_sunlight": {
+          "label": "Hard Sunlight",
+          "subtitle": "Harsh shadows, high contrast",
+          "description": "Direct, un-diffused sunlight. Creates sharp, crisp, high-contrast shadows. Highly dramatic, revealing every textural bump and fold in clothing."
+        },
+        "golden_hour": {
+          "label": "Golden Hour",
+          "subtitle": "Warm, directional, long shadows",
+          "description": "The light of sunset or sunrise. Characterized by a highly directional, horizontal angle that casts long, dramatic shadows. The light is naturally warm, golden, and cinematic."
+        },
+        "blue_hour_overcast": {
+          "label": "Blue Hour / Overcast",
+          "subtitle": "Soft, cool, diffused",
+          "description": "Shot before sunrise, after sunset, or under heavy clouds. The light is extremely soft, completely shadowless, and carries a moody, cool, bluish-gray tint."
+        },
+        "cinematic_neon_practical": {
+          "label": "Cinematic Neon / Practical",
+          "subtitle": "Motivated street light",
+          "description": "Lit solely by glowing elements within the scene—like neon store signs, street lamps, or car headlights. Features stark color contrasts (e.g., cyan and magenta) and deep pockets of pure black darkness."
+        },
+        "soft_window_light": {
+          "label": "Soft Window Light",
+          "subtitle": "Directional, diffuse indoor shadows",
+          "description": "Indoor lighting that relies on natural light pouring through a large window. It falls off quickly, creating beautiful, soft, directional gradients across the subject's face or body, leaving the background in darker ambient shadow."
+        }
+      }
+    },
+    "environment_setting": {
+      "label": "Environment / Setting",
+      "description": "The physical stage of the photoshoot.",
+      "options": {
+        "pure_solid_white": {
+          "label": "Pure Solid White Studio",
+          "subtitle": "Strict #FFFFFF, no off-white",
+          "description": "A complete absence of background. Strictly a pure, clipped-white canvas (#FFFFFF) with absolutely no gradients, off-white shadows, or horizon lines. Ideal for strict e-commerce cutouts."
+        },
+        "seamless_neutral": {
+          "label": "Seamless Neutral Studio",
+          "subtitle": "Slate grey, beige paper",
+          "description": "A professional indoor studio featuring a seamless paper backdrop sweeping onto the floor. Typically styled in neutral tones like slate gray, beige, or soft charcoal. Provides a clean, distraction-free environment with visible floor shadows."
+        },
+        "urban_gritty_street": {
+          "label": "Urban: Gritty Street",
+          "subtitle": "Alleys, faded storefronts",
+          "description": "A raw city environment. Features cracked concrete, weathered brick, faded signage, metal fences, and subtle urban decay."
+        },
+        "urban_classic_facades": {
+          "label": "Urban: Classic Facades",
+          "subtitle": "European stone, stately architecture",
+          "description": "High-end city locations. Features large stone pillars, Parisian or European-style architectural details, wrought-iron balconies, and clean, sweeping sidewalks."
+        },
+        "interior_curated_retro": {
+          "label": "Interior: Curated Retro",
+          "subtitle": "Warm wood paneling, velvet",
+          "description": "A highly styled, vintage-inspired indoor room. Features mid-century furniture, walnut wood paneling, velvet textiles, and carefully placed props (books, ceramics) with thoughtful negative space."
+        },
+        "interior_modern_minimalist": {
+          "label": "Interior: Modern Minimalist",
+          "subtitle": "Bare plaster, glass",
+          "description": "An ultra-modern indoor space. Dominated by sleek lines, bare plaster or concrete walls, large glass windows, and a lack of traditional decor."
+        },
+        "atmospheric_abstract": {
+          "label": "Atmospheric / Abstract",
+          "subtitle": "Dense fog, color voids",
+          "description": "A setting defined by weather or absence rather than physical objects. The background fades into a dense fog, a milky mist, or an infinite void of dark color, removing all geographical context."
+        }
+      }
+    },
+    "engine_parameters": {
+      "label": "Engine Parameters",
+      "description": "Technical framing constraints.",
+      "options": {
+        "square_1_1": {
+          "label": "1:1 Square",
+          "description": "An equal width-to-height ratio. The standard format for Instagram grid posts and general digital catalogs."
+        },
+        "portrait_4_5": {
+          "label": "4:5 Portrait",
+          "description": "Slightly taller than it is wide. The optimal format for maximizing screen real estate on mobile social media feeds."
+        },
+        "vertical_9_16": {
+          "label": "9:16 Vertical",
+          "description": "A tall vertical crop. Specifically utilized for Instagram Reels, TikToks, YouTube Shorts, and full-screen Meta advertising."
+        },
+        "landscape_16_9": {
+          "label": "16:9 Landscape",
+          "description": "A wide, cinematic crop. Best suited for website hero banners, desktop viewing, and video thumbnails."
+        },
+        "standard_3_2": {
+          "label": "3:2 Standard",
+          "description": "The classic 35mm film and standard DSLR photography aspect ratio. Offers a traditional, timeless photographic canvas."
+        }
+      }
+    }
+  }
+}
