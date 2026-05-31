@@ -1411,7 +1411,7 @@ async def generate(
     environment_setting: str = Form("seamless_neutral"),
     engine_params: str | None = Form(None),
     size: str = Form("1K"),
-    aspect_ratio: str = Form("1:1"),
+    aspect_ratio: str = Form("4:5"),
     product_images: list[UploadFile] = File(default=[]),
     model_images: list[UploadFile] = File(default=[]),
     reference_images: list[UploadFile] = File(default=[]),
@@ -1478,7 +1478,7 @@ async def generate_product_image(
     environment_setting: str = Form("seamless_neutral"),
     engine_params: str | None = Form(None),
     size: str = Form("1K"),
-    aspect_ratio: str = Form("1:1"),
+    aspect_ratio: str = Form("4:5"),
     product_images: list[UploadFile] = File(default=[]),
     _session: dict[str, Any] = Depends(require_auth),
 ) -> dict[str, Any]:

@@ -694,7 +694,7 @@ export function App() {
       formData.set("user_hints", product.imageNotes);
       formData.set("prompt_template", promptDefaults.image);
       formData.set("size", "1K");
-      formData.set("aspect_ratio", "1:1");
+      formData.set("aspect_ratio", "4:5");
       for (const media of references) {
         if (media.file) formData.append("product_images", await prepareImageForUpload(media.file));
       }
