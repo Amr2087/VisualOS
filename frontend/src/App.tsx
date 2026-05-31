@@ -47,7 +47,6 @@ type ShopForm = {
   shopify_client_secret: string;
   admin_access_token: string;
   admin_api_version: string;
-  location_id: string;
   publication_id: string;
 };
 
@@ -81,7 +80,7 @@ type ProductCard = {
   description: string;
   price: string;
   compareAtPrice: string;
-  branch: string;
+  location: string;
   imageMode: ImageMode;
   aspectRatio: AspectRatio;
   imageSize: ImageSize;
@@ -196,7 +195,7 @@ function createProductCard(autoMetadata = true): ProductCard {
     description: "",
     price: "",
     compareAtPrice: "",
-    branch: "",
+    location: "",
     imageMode: "photoshoot",
     aspectRatio: "4:5",
     imageSize: "1K",
@@ -224,7 +223,6 @@ function createShopForm(shop?: Shop): ShopForm {
     shopify_client_secret: "",
     admin_access_token: "",
     admin_api_version: shop?.admin_api_version || "2026-04",
-    location_id: shop?.location_id || "",
     publication_id: shop?.publication_id || ""
   };
 }
@@ -843,7 +841,7 @@ export function App() {
         title: product.title.trim(),
         description: product.description.trim(),
         sku: product.sku.trim(),
-        branch: product.branch.trim() || null,
+        location: product.location.trim() || null,
         price: product.price.trim() ? Number(product.price) : null,
         compare_at_price: product.compareAtPrice.trim() ? Number(product.compareAtPrice) : null,
         sizes: product.sizes
@@ -1031,23 +1029,10 @@ export function App() {
                 placeholder={editingShopId ? "Leave blank to keep saved" : "Optional shpat_..."}
               />
             </label>
-            <div className="two-col">
-              <label className="field">
-                <span>API version</span>
-                <input
-                  value={shopForm.admin_api_version}
-                  onChange={(event) => setShopForm({ ...shopForm, admin_api_version: event.target.value })}
-                />
-              </label>
-              <label className="field">
-                <span>Default location</span>
-                <input
-                  value={shopForm.location_id}
-                  onChange={(event) => setShopForm({ ...shopForm, location_id: event.target.value })}
-                  placeholder="gid://shopify/Location/..."
-                />
-              </label>
-            </div>
+            <label className="field">
+              <span>API version</span>
+              <input value={shopForm.admin_api_version} onChange={(event) => setShopForm({ ...shopForm, admin_api_version: event.target.value })} />
+            </label>
             <label className="field">
               <span>Publication ID</span>
               <input
@@ -1189,9 +1174,7 @@ export function App() {
               </button>
             </div>
             {globalError && <div className="error-box">{globalError}</div>}
-            {!selectedShop.location_id && (
-              <div className="warning-box">Stock is skipped unless this shop has a default Location GID or the product has a branch/location.</div>
-            )}
+            <div className="warning-box">Stock uses each product's Location field. Use a raw Location GID when possible.</div>
             {lastPublishResult && (
               <div className="result-note">
                 Published {lastPublishResult.succeeded} of {lastPublishResult.total}; {lastPublishResult.failed} failed.
@@ -1356,11 +1339,11 @@ export function App() {
                     />
                   </label>
                   <label className="field">
-                    <span>Branch</span>
+                    <span>Location</span>
                     <input
-                      value={product.branch}
-                      onChange={(event) => patchProduct(product.id, { branch: event.target.value })}
-                      placeholder="Optional branch or Location GID"
+                      value={product.location}
+                      onChange={(event) => patchProduct(product.id, { location: event.target.value })}
+                      placeholder="Location GID or exact Shopify location name"
                     />
                   </label>
                 </div>

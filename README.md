@@ -15,7 +15,7 @@ The previous VisualOS app has been archived under `legacy_visualos/`.
 4. Upload one or more product images, choose exactly one uploaded image as the
    generation reference, and order the media exactly as it should appear on
    Shopify.
-5. Enter SKU, sizes, quantity per size, optional branch/location, optional price,
+5. Enter SKU, sizes, quantity per size, per-product location, optional price,
    optional compare-at price, comma-separated tags, and comma-separated
    collection names.
 6. Optionally generate a product image in `Photoshoot` or `Flat lay` mode, with
@@ -36,8 +36,8 @@ GEMINI_API_KEY=...
 
 Shop credentials are stored server-side in `data/shops.json`, which is ignored
 by git. The browser only sends a `shop_id` when publishing; Client ID, Client
-Secret, optional legacy Admin token, default Location ID, and Publication ID are
-loaded by the backend.
+Secret, optional legacy Admin token, and Publication ID are loaded by the
+backend. Inventory location is entered per product, not on the shop.
 
 On Vercel, serverless functions cannot persist project-directory files. The app
 defaults shop storage to `/tmp/visualos/shops.json` when `VERCEL` is present,
@@ -68,7 +68,7 @@ write_publications
 read_locations
 ```
 
-`read_locations` is only needed when you enter a branch/location name instead of
+`read_locations` is only needed when you enter a product location name instead of
 a raw `gid://shopify/Location/...`. If no location is available, products and
 variants are still created, but inventory updates are skipped.
 

@@ -206,6 +206,7 @@ class ShopifyProductPublishRequest(BaseModel):
     title: str = Field(..., min_length=1)
     sku: str = Field(..., min_length=1)
     branch: str | None = None
+    location: str | None = None
     price: float | None = None
     compare_at_price: float | None = None
     sizes: list[ShopifyProductSizeQuantity] = Field(default_factory=list)
@@ -259,6 +260,7 @@ class ShopifyBatchProduct(BaseModel):
     description: str = ""
     sku: str = Field(..., min_length=1)
     branch: str | None = None
+    location: str | None = None
     price: float | None = None
     compare_at_price: float | None = None
     sizes: list[ShopifyProductSizeQuantity] = Field(default_factory=list)
@@ -826,22 +828,22 @@ async def _upload_shopify_product_image(
 
 async def _resolve_shopify_location_id(
     shop_domain: str,
-    branch: str | None,
+    location: str | None,
     admin_access_token: str | None = None,
     client_id: str | None = None,
     client_secret: str | None = None,
     api_version: str | None = None,
     fallback_location_id: str | None = None,
 ) -> str | None:
-    branch_value = (branch or "").strip()
-    if branch_value.startswith("gid://shopify/Location/"):
-        return branch_value
-    configured_location_id = (fallback_location_id or SHOPIFY_ADMIN_LOCATION_ID).strip()
-    if not branch_value and configured_location_id.startswith("gid://shopify/Location/"):
+    location_value = (location or "").strip()
+    if location_value.startswith("gid://shopify/Location/"):
+        return location_value
+    configured_location_id = (fallback_location_id if fallback_location_id is not None else SHOPIFY_ADMIN_LOCATION_ID).strip()
+    if not location_value and configured_location_id.startswith("gid://shopify/Location/"):
         return configured_location_id
-    if not branch_value and configured_location_id:
-        branch_value = configured_location_id
-    if not branch_value:
+    if not location_value and configured_location_id:
+        location_value = configured_location_id
+    if not location_value:
         return None
 
     try:
@@ -872,7 +874,7 @@ async def _resolve_shopify_location_id(
                 detail={
                     "message": (
                         "Your Shopify app is missing access to locations. Add the read_locations scope, "
-                        "or paste a Location ID instead of a branch name."
+                        "or paste a Location ID instead of a location name."
                     ),
                     "scope_required": "read_locations",
                     "location_id_format": "gid://shopify/Location/...",
@@ -882,14 +884,14 @@ async def _resolve_shopify_location_id(
         raise
     locations = locations_data.get("data", {}).get("locations", {}).get("nodes", [])
     active_locations = [location for location in locations if location.get("isActive")]
-    if branch_value:
-        match = next((location for location in active_locations if location.get("name", "").lower() == branch_value.lower()), None)
+    if location_value:
+        match = next((location for location in active_locations if location.get("name", "").lower() == location_value.lower()), None)
         if not match:
             raise HTTPException(
                 status_code=400,
                 detail={
-                    "message": f"No active Shopify location matched branch '{branch_value}'.",
-                    "available_branches": [location.get("name") for location in active_locations],
+                    "message": f"No active Shopify location matched '{location_value}'.",
+                    "available_locations": [location.get("name") for location in active_locations],
                 },
             )
         return match["id"]
@@ -1180,7 +1182,7 @@ async def _set_shopify_inventory_quantities(
         return {
             "status": "skipped",
             "reason": "missing_location_id",
-            "message": "Inventory was skipped because no Shopify Location ID or resolvable branch was provided.",
+            "message": "Inventory was skipped because no Shopify Location ID or resolvable product location was provided.",
         }
 
     quantities = []
@@ -1323,7 +1325,7 @@ async def _create_shopify_product(shop_domain: str, request: ShopifyProductPubli
     size_rows = request.sizes or [ShopifyProductSizeQuantity(size="One Size", qty=0)]
     location_id = await _resolve_shopify_location_id(
         shop_domain,
-        request.branch,
+        request.location or request.branch,
         admin_access_token=request.admin_access_token,
         client_id=request.shopify_client_id,
         client_secret=request.shopify_client_secret,
@@ -1656,7 +1658,7 @@ async def _publish_one_batch_product(shop_domain: str, request: ShopifyBatchPubl
         shopify_client_secret=credentials["shopify_client_secret"],
         admin_access_token=credentials["admin_access_token"],
         admin_api_version=credentials["admin_api_version"],
-        location_id=credentials["location_id"],
+        location_id="",
         publication_id=credentials["publication_id"],
         img=media_uploads[0]["resource_url"],
         media_urls=[item["resource_url"] for item in media_uploads],
@@ -1664,6 +1666,7 @@ async def _publish_one_batch_product(shop_domain: str, request: ShopifyBatchPubl
         title=product.title,
         sku=product.sku,
         branch=product.branch,
+        location=product.location,
         price=product.price,
         compare_at_price=product.compare_at_price,
         sizes=product.sizes,
