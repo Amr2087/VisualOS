@@ -36,6 +36,12 @@ by git. The browser only sends a `shop_id` when publishing; Client ID, Client
 Secret, optional legacy Admin token, default Location ID, and Publication ID are
 loaded by the backend.
 
+On Vercel, serverless functions cannot persist project-directory files. The app
+defaults shop storage to `/tmp/visualos/shops.json` when `VERCEL` is present,
+which avoids write errors but is not durable across cold starts. For production
+you can set `VISUALOS_SHOPS_JSON` as a seeded JSON list, or move shop storage to
+durable storage such as Vercel KV/Postgres.
+
 Each shop can use Shopify Client Credentials auth:
 
 ```text
@@ -122,4 +128,8 @@ The project includes `vercel.json` with:
 - Vite static frontend: `frontend/`
 
 Set `VISUALOS_ADMIN_PIN`, `VISUALOS_SESSION_SECRET`, `GEMINI_API_KEY`, and any
-deployment-specific storage/secrets before deploying.
+deployment-specific storage/secrets before deploying. For Vercel, also set:
+
+```bash
+VISUALOS_DATA_DIR=/tmp/visualos
+```

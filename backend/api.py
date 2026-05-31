@@ -47,8 +47,9 @@ SHOPIFY_CLIENT_ID = os.getenv("SHOPIFY_CLIENT_ID", "")
 SHOPIFY_CLIENT_SECRET = os.getenv("SHOPIFY_CLIENT_SECRET", "")
 SHOPIFY_TOKEN_REFRESH_MARGIN_SECONDS = 300
 SHOPIFY_CLIENT_CREDENTIAL_TOKEN_CACHE: dict[str, dict[str, Any]] = {}
-DATA_DIR = PROJECT_ROOT / "data"
-SHOPS_FILE = DATA_DIR / "shops.json"
+DEFAULT_DATA_DIR = Path("/tmp/visualos") if os.getenv("VERCEL") else PROJECT_ROOT / "data"
+DATA_DIR = Path(os.getenv("VISUALOS_DATA_DIR", str(DEFAULT_DATA_DIR)))
+SHOPS_FILE = Path(os.getenv("VISUALOS_SHOPS_FILE", str(DATA_DIR / "shops.json")))
 SESSION_COOKIE_NAME = "visualos_session"
 SESSION_TTL_SECONDS = int(os.getenv("VISUALOS_SESSION_TTL_SECONDS", str(7 * 24 * 60 * 60)))
 VISUALOS_ADMIN_PIN = os.getenv("VISUALOS_ADMIN_PIN", "1234")
@@ -122,6 +123,13 @@ def _ensure_data_dir() -> None:
 
 def _read_shops() -> list[dict[str, Any]]:
     if not SHOPS_FILE.exists():
+        seeded_shops = os.getenv("VISUALOS_SHOPS_JSON", "").strip()
+        if seeded_shops:
+            try:
+                data = json.loads(seeded_shops)
+            except json.JSONDecodeError:
+                return []
+            return data if isinstance(data, list) else []
         return []
     try:
         data = json.loads(SHOPS_FILE.read_text(encoding="utf-8"))
@@ -131,8 +139,18 @@ def _read_shops() -> list[dict[str, Any]]:
 
 
 def _write_shops(shops: list[dict[str, Any]]) -> None:
-    _ensure_data_dir()
-    SHOPS_FILE.write_text(json.dumps(shops, indent=2), encoding="utf-8")
+    try:
+        _ensure_data_dir()
+        SHOPS_FILE.write_text(json.dumps(shops, indent=2), encoding="utf-8")
+    except OSError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "Could not save shop config on this server.",
+                "path": str(SHOPS_FILE),
+                "hint": "On Vercel, set VISUALOS_DATA_DIR=/tmp/visualos or use durable storage for shops.",
+            },
+        ) from exc
 
 
 def _shop_from_request(request: ShopWriteRequest, existing: dict[str, Any] | None = None) -> dict[str, Any]:
