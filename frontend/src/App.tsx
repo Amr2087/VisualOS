@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 
 type ImageMode = "photoshoot" | "flat_lay";
+type AspectRatio = "1:1" | "4:5" | "3:4" | "4:3" | "16:9" | "9:16";
 type ProductStatus = "draft" | "generated" | "approved" | "published" | "error";
 type MediaKind = "uploaded" | "generated";
 
@@ -78,8 +79,10 @@ type ProductCard = {
   title: string;
   description: string;
   price: string;
+  compareAtPrice: string;
   branch: string;
   imageMode: ImageMode;
+  aspectRatio: AspectRatio;
   generationEnabled: boolean;
   autoMetadata: boolean;
   imageNotes: string;
@@ -159,6 +162,15 @@ const DEFAULT_PROMPTS: PromptDefaults = {
   description: "Write polished Shopify product-page copy that describes visible product details without inventing claims."
 };
 
+const ASPECT_RATIO_OPTIONS: { value: AspectRatio; label: string }[] = [
+  { value: "4:5", label: "4:5 Product portrait" },
+  { value: "1:1", label: "1:1 Square" },
+  { value: "3:4", label: "3:4 Portrait" },
+  { value: "4:3", label: "4:3 Landscape" },
+  { value: "9:16", label: "9:16 Story" },
+  { value: "16:9", label: "16:9 Wide" }
+];
+
 function makeId() {
   return window.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
@@ -174,8 +186,10 @@ function createProductCard(autoMetadata = true): ProductCard {
     title: "",
     description: "",
     price: "",
+    compareAtPrice: "",
     branch: "",
     imageMode: "photoshoot",
+    aspectRatio: "4:5",
     generationEnabled: true,
     autoMetadata,
     imageNotes: "",
@@ -630,6 +644,16 @@ export function App() {
     if (!enabledMedia(product).length) return "Add at least one enabled media image.";
     if (!product.title.trim()) return "Title is required before approval.";
     if (product.price.trim() && Number.isNaN(Number(product.price))) return "Price must be numeric.";
+    if (product.compareAtPrice.trim() && Number.isNaN(Number(product.compareAtPrice))) return "Compare at price must be numeric.";
+    if (
+      product.price.trim() &&
+      product.compareAtPrice.trim() &&
+      !Number.isNaN(Number(product.price)) &&
+      !Number.isNaN(Number(product.compareAtPrice)) &&
+      Number(product.compareAtPrice) <= Number(product.price)
+    ) {
+      return "Compare at price should be higher than the sale price.";
+    }
     if (product.sizes.some((row) => row.quantity.trim() && Number.isNaN(Number(row.quantity)))) return "Quantities must be numeric.";
     return "";
   }
@@ -694,7 +718,7 @@ export function App() {
       formData.set("user_hints", product.imageNotes);
       formData.set("prompt_template", promptDefaults.image);
       formData.set("size", "1K");
-      formData.set("aspect_ratio", "4:5");
+      formData.set("aspect_ratio", product.aspectRatio);
       for (const media of references) {
         if (media.file) formData.append("product_images", await prepareImageForUpload(media.file));
       }
@@ -771,6 +795,7 @@ export function App() {
         sku: product.sku.trim(),
         branch: product.branch.trim() || null,
         price: product.price.trim() ? Number(product.price) : null,
+        compare_at_price: product.compareAtPrice.trim() ? Number(product.compareAtPrice) : null,
         sizes: product.sizes
           .filter((row) => row.size.trim())
           .map((row) => ({ size: row.size.trim(), qty: Number(row.quantity || 0) })),
@@ -1168,6 +1193,20 @@ export function App() {
                   </button>
                 </div>
 
+                <label className="field">
+                  <span>Aspect ratio</span>
+                  <select
+                    value={product.aspectRatio}
+                    onChange={(event) => patchProduct(product.id, { aspectRatio: event.target.value as AspectRatio })}
+                  >
+                    {ASPECT_RATIO_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
                 <label className="upload-box">
                   <UploadCloud size={18} />
                   <span>Upload product images</span>
@@ -1231,6 +1270,13 @@ export function App() {
                   <label className="field">
                     <span>Price</span>
                     <input value={product.price} onChange={(event) => patchProduct(product.id, { price: event.target.value })} />
+                  </label>
+                  <label className="field">
+                    <span>Compare at price</span>
+                    <input
+                      value={product.compareAtPrice}
+                      onChange={(event) => patchProduct(product.id, { compareAtPrice: event.target.value })}
+                    />
                   </label>
                   <label className="field">
                     <span>Branch</span>

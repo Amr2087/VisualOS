@@ -207,6 +207,7 @@ class ShopifyProductPublishRequest(BaseModel):
     sku: str = Field(..., min_length=1)
     branch: str | None = None
     price: float | None = None
+    compare_at_price: float | None = None
     sizes: list[ShopifyProductSizeQuantity] = Field(default_factory=list)
     media_urls: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
@@ -259,6 +260,7 @@ class ShopifyBatchProduct(BaseModel):
     sku: str = Field(..., min_length=1)
     branch: str | None = None
     price: float | None = None
+    compare_at_price: float | None = None
     sizes: list[ShopifyProductSizeQuantity] = Field(default_factory=list)
     media_items: list[PublishMediaItem] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
@@ -598,6 +600,12 @@ def _check_shopify_user_errors(errors: list[dict[str, Any]] | None, operation: s
 
 def _format_variant_price(price: float | None) -> str:
     return f"{price or 0:.2f}"
+
+
+def _format_optional_variant_price(price: float | None) -> str | None:
+    if price is None:
+        return None
+    return f"{price:.2f}"
 
 
 def _shop_credentials(shop: dict[str, Any]) -> dict[str, str]:
@@ -1112,6 +1120,9 @@ async def _create_shopify_product_variants(
                 "optionValues": [{"optionName": "Size", "name": size}],
             }
         )
+        compare_at_price = _format_optional_variant_price(request.compare_at_price)
+        if compare_at_price:
+            variants[-1]["compareAtPrice"] = compare_at_price
 
     data = await _call_shopify_admin_graphql(
         shop_domain,
@@ -1126,6 +1137,7 @@ async def _create_shopify_product_variants(
               id
               title
               price
+              compareAtPrice
               selectedOptions {
                 name
                 value
@@ -1653,6 +1665,7 @@ async def _publish_one_batch_product(shop_domain: str, request: ShopifyBatchPubl
         sku=product.sku,
         branch=product.branch,
         price=product.price,
+        compare_at_price=product.compare_at_price,
         sizes=product.sizes,
         tags=product.tags,
         collection_ids=product.collection_ids,

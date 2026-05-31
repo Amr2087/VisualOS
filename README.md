@@ -15,7 +15,7 @@ The previous VisualOS app has been archived under `legacy_visualos/`.
 4. Upload one or more product images and order the media exactly as it should
    appear on Shopify.
 5. Enter SKU, sizes, quantity per size, optional branch/location, optional price,
-   tags, and collections.
+   optional compare-at price, tags, and collections.
 6. Optionally generate a product image in `Photoshoot` or `Flat lay` mode.
 7. Optionally generate title and description using global prompt defaults plus
    per-product notes.
@@ -93,8 +93,9 @@ Protected:
 
 Publishing uses `stagedUploadsCreate` for every ordered local media item, then
 creates the product with `productCreate`, `tags`, and `collectionsToJoin`.
-Variants are created with `productVariantsBulkCreate`, and stock is applied with
-`inventoryActivate` and `inventorySetQuantities` when a location is available.
+Variants are created with `productVariantsBulkCreate`, including optional
+`compareAtPrice` for sale pricing, and stock is applied with `inventoryActivate`
+and `inventorySetQuantities` when a location is available.
 
 ## Local Setup
 

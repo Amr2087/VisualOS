@@ -20,6 +20,7 @@ body {
 
 button,
 input,
+select,
 textarea {
   font: inherit;
 }
@@ -194,6 +195,7 @@ h2 {
 }
 
 input,
+select,
 textarea {
   background: #fbfcfb;
   border: 1px solid #d7dfda;
@@ -208,6 +210,11 @@ input {
   padding: 0 10px;
 }
 
+select {
+  height: 40px;
+  padding: 0 10px;
+}
+
 textarea {
   min-height: 78px;
   padding: 10px;
@@ -215,6 +222,7 @@ textarea {
 }
 
 input:focus,
+select:focus,
 textarea:focus {
   border-color: #1d7c72;
   box-shadow: 0 0 0 3px rgba(29, 124, 114, 0.14);
@@ -500,7 +508,7 @@ textarea:focus {
 .form-grid {
   display: grid;
   gap: 10px;
-  grid-template-columns: 1.2fr 0.7fr 1.1fr;
+  grid-template-columns: 1.1fr 0.7fr 0.8fr 1.1fr;
 }
 
 .size-row {
