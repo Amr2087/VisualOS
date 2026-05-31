@@ -242,7 +242,8 @@ textarea:focus {
 }
 
 .check-row input,
-.tiny-check input {
+.tiny-check input,
+.ref-radio input {
   height: 16px;
   width: 16px;
 }
@@ -477,7 +478,7 @@ textarea:focus {
   align-items: center;
   display: grid;
   gap: 8px;
-  grid-template-columns: 46px minmax(0, 1fr) auto auto auto auto;
+  grid-template-columns: 46px minmax(0, 1fr) auto auto auto auto auto;
 }
 
 .media-row img {
@@ -503,6 +504,20 @@ textarea:focus {
 .media-row span {
   color: #61716a;
   font-size: 12px;
+}
+
+.ref-radio {
+  align-items: center;
+  color: #3f4945;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 800;
+  gap: 4px;
+}
+
+.ref-placeholder {
+  display: block;
+  width: 42px;
 }
 
 .form-grid {

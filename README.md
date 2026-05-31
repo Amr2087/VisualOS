@@ -12,11 +12,14 @@ The previous VisualOS app has been archived under `legacy_visualos/`.
 1. Log in with the VisualOS admin PIN.
 2. Create or select a saved Shopify shop.
 3. Add one product card per Shopify product.
-4. Upload one or more product images and order the media exactly as it should
-   appear on Shopify.
+4. Upload one or more product images, choose exactly one uploaded image as the
+   generation reference, and order the media exactly as it should appear on
+   Shopify.
 5. Enter SKU, sizes, quantity per size, optional branch/location, optional price,
-   optional compare-at price, tags, and collections.
-6. Optionally generate a product image in `Photoshoot` or `Flat lay` mode.
+   optional compare-at price, comma-separated tags, and comma-separated
+   collection names.
+6. Optionally generate a product image in `Photoshoot` or `Flat lay` mode, with
+   per-product aspect ratio and `1K`, `2K`, or `4K` resolution controls.
 7. Optionally generate title and description using global prompt defaults plus
    per-product notes.
 8. Edit product details, approve cards, then publish approved products.
@@ -96,6 +99,11 @@ creates the product with `productCreate`, `tags`, and `collectionsToJoin`.
 Variants are created with `productVariantsBulkCreate`, including optional
 `compareAtPrice` for sale pricing, and stock is applied with `inventoryActivate`
 and `inventorySetQuantities` when a location is available.
+
+In the frontend, collection entry is CSV-style. Each collection name or handle is
+matched against the shop's loaded collections before publish. If a collection is
+missing, the product card shows `Collection "x" is missing` and publishing is
+blocked until the collection is created or removed from the CSV field.
 
 ## Local Setup
 

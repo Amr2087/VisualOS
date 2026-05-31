@@ -24,6 +24,7 @@ import {
 
 type ImageMode = "photoshoot" | "flat_lay";
 type AspectRatio = "1:1" | "4:5" | "3:4" | "4:3" | "16:9" | "9:16";
+type ImageSize = "1K" | "2K" | "4K";
 type ProductStatus = "draft" | "generated" | "approved" | "published" | "error";
 type MediaKind = "uploaded" | "generated";
 
@@ -83,13 +84,15 @@ type ProductCard = {
   branch: string;
   imageMode: ImageMode;
   aspectRatio: AspectRatio;
+  imageSize: ImageSize;
+  generationReferenceMediaId: string;
   generationEnabled: boolean;
   autoMetadata: boolean;
   imageNotes: string;
   titleNotes: string;
   descriptionNotes: string;
   tags: string;
-  collectionIds: string[];
+  collections: string;
   sizes: ProductSizeInventory[];
   media: ProductMedia[];
   refinedPrompt: string;
@@ -171,6 +174,12 @@ const ASPECT_RATIO_OPTIONS: { value: AspectRatio; label: string }[] = [
   { value: "16:9", label: "16:9 Wide" }
 ];
 
+const IMAGE_SIZE_OPTIONS: { value: ImageSize; label: string }[] = [
+  { value: "1K", label: "1K Standard" },
+  { value: "2K", label: "2K High" },
+  { value: "4K", label: "4K Ultra" }
+];
+
 function makeId() {
   return window.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
@@ -190,13 +199,15 @@ function createProductCard(autoMetadata = true): ProductCard {
     branch: "",
     imageMode: "photoshoot",
     aspectRatio: "4:5",
+    imageSize: "1K",
+    generationReferenceMediaId: "",
     generationEnabled: true,
     autoMetadata,
     imageNotes: "",
     titleNotes: "",
     descriptionNotes: "",
     tags: "",
-    collectionIds: [],
+    collections: "",
     sizes: [createSizeInventory()],
     media: [],
     refinedPrompt: "",
@@ -366,11 +377,32 @@ function uploadedMedia(product: ProductCard) {
   return product.media.filter((item) => item.kind === "uploaded" && item.file && item.enabled);
 }
 
-function parseTags(value: string) {
+function uploadedGenerationMedia(product: ProductCard) {
+  return product.media.filter((item) => item.kind === "uploaded" && item.file);
+}
+
+function generationReferenceMedia(product: ProductCard) {
+  const uploaded = uploadedGenerationMedia(product);
+  return uploaded.find((item) => item.id === product.generationReferenceMediaId) || uploaded[0] || null;
+}
+
+function parseCsv(value: string) {
   return value
     .split(",")
-    .map((tag) => tag.trim())
+    .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function parseTags(value: string) {
+  return parseCsv(value);
+}
+
+function collectionKey(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function collectionHandle(value: string) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
 function mergePrompt(defaultPrompt: string, notes: string) {
@@ -589,9 +621,16 @@ export function App() {
     const media = Array.from(files || []).map(createUploadedMedia);
     if (!media.length) return;
     setProducts((current) =>
-      current.map((product) =>
-        product.id === productId ? { ...product, media: [...product.media, ...media], error: "", status: "draft" } : product
-      )
+      current.map((product) => {
+        if (product.id !== productId) return product;
+        return {
+          ...product,
+          media: [...product.media, ...media],
+          generationReferenceMediaId: product.generationReferenceMediaId || media[0].id,
+          error: "",
+          status: "draft"
+        };
+      })
     );
   }
 
@@ -607,9 +646,15 @@ export function App() {
 
   function removeMedia(productId: string, mediaId: string) {
     setProducts((current) =>
-      current.map((product) =>
-        product.id === productId ? { ...product, media: product.media.filter((media) => media.id !== mediaId) } : product
-      )
+      current.map((product) => {
+        if (product.id !== productId) return product;
+        const media = product.media.filter((item) => item.id !== mediaId);
+        const nextReference =
+          product.generationReferenceMediaId === mediaId
+            ? media.find((item) => item.kind === "uploaded" && item.file)?.id || ""
+            : product.generationReferenceMediaId;
+        return { ...product, media, generationReferenceMediaId: nextReference };
+      })
     );
   }
 
@@ -627,16 +672,18 @@ export function App() {
     );
   }
 
-  function toggleCollection(productId: string, collectionId: string) {
-    setProducts((current) =>
-      current.map((product) => {
-        if (product.id !== productId) return product;
-        const collectionIds = product.collectionIds.includes(collectionId)
-          ? product.collectionIds.filter((id) => id !== collectionId)
-          : [...product.collectionIds, collectionId];
-        return { ...product, collectionIds };
-      })
-    );
+  function resolveCollectionIds(product: ProductCard) {
+    return parseCsv(product.collections).map((name) => {
+      const match = collections.find((collection) => {
+        const wantedKey = collectionKey(name);
+        const wantedHandle = collectionHandle(name);
+        return collectionKey(collection.title) === wantedKey || collectionKey(collection.handle) === wantedKey || collection.handle === wantedHandle;
+      });
+      if (!match) {
+        throw new Error(`Collection "${name}" is missing.`);
+      }
+      return match.id;
+    });
   }
 
   function productValidation(product: ProductCard) {
@@ -655,6 +702,11 @@ export function App() {
       return "Compare at price should be higher than the sale price.";
     }
     if (product.sizes.some((row) => row.quantity.trim() && Number.isNaN(Number(row.quantity)))) return "Quantities must be numeric.";
+    try {
+      resolveCollectionIds(product);
+    } catch (error) {
+      return error instanceof Error ? `${error.message} Create it first from the Collections panel.` : "A collection is missing.";
+    }
     return "";
   }
 
@@ -698,9 +750,9 @@ export function App() {
       if (product.autoMetadata) await generateMetadata(product);
       return;
     }
-    const references = uploadedMedia(product);
-    if (!references.length) {
-      patchProduct(product.id, { error: "Upload at least one enabled product image before generation.", status: "error" });
+    const reference = generationReferenceMedia(product);
+    if (!reference?.file) {
+      patchProduct(product.id, { error: "Choose one uploaded image as the generation reference.", status: "error" });
       return;
     }
     if (!product.sku.trim()) {
@@ -717,11 +769,9 @@ export function App() {
       formData.set("image_mode", product.imageMode);
       formData.set("user_hints", product.imageNotes);
       formData.set("prompt_template", promptDefaults.image);
-      formData.set("size", "1K");
+      formData.set("size", product.imageSize);
       formData.set("aspect_ratio", product.aspectRatio);
-      for (const media of references) {
-        if (media.file) formData.append("product_images", await prepareImageForUpload(media.file));
-      }
+      formData.append("product_images", await prepareImageForUpload(reference.file));
       const imageResult = await postForm<GenerateImageResult>("/api/products/generate-image", formData);
       const generatedMedia: ProductMedia = {
         id: makeId(),
@@ -801,7 +851,7 @@ export function App() {
           .map((row) => ({ size: row.size.trim(), qty: Number(row.quantity || 0) })),
         media_items: await Promise.all(enabledMedia(product).map((media) => mediaToPayload(media, product.sku))),
         tags: parseTags(product.tags),
-        collection_ids: product.collectionIds
+        collection_ids: resolveCollectionIds(product)
       });
     }
     return payload;
@@ -1193,19 +1243,34 @@ export function App() {
                   </button>
                 </div>
 
-                <label className="field">
-                  <span>Aspect ratio</span>
-                  <select
-                    value={product.aspectRatio}
-                    onChange={(event) => patchProduct(product.id, { aspectRatio: event.target.value as AspectRatio })}
-                  >
-                    {ASPECT_RATIO_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <div className="two-col">
+                  <label className="field">
+                    <span>Aspect ratio</span>
+                    <select
+                      value={product.aspectRatio}
+                      onChange={(event) => patchProduct(product.id, { aspectRatio: event.target.value as AspectRatio })}
+                    >
+                      {ASPECT_RATIO_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span>Resolution</span>
+                    <select
+                      value={product.imageSize}
+                      onChange={(event) => patchProduct(product.id, { imageSize: event.target.value as ImageSize })}
+                    >
+                      {IMAGE_SIZE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
 
                 <label className="upload-box">
                   <UploadCloud size={18} />
@@ -1236,6 +1301,18 @@ export function App() {
                           onChange={(event) => patchMedia(product.id, media.id, { enabled: event.target.checked })}
                         />
                       </label>
+                      {media.kind === "uploaded" && (
+                        <label className="ref-radio" title="Use as generation reference">
+                          <input
+                            type="radio"
+                            name={`generation-reference-${product.id}`}
+                            checked={(product.generationReferenceMediaId || uploadedGenerationMedia(product)[0]?.id || "") === media.id}
+                            onChange={() => patchProduct(product.id, { generationReferenceMediaId: media.id })}
+                          />
+                          Ref
+                        </label>
+                      )}
+                      {media.kind !== "uploaded" && <span className="ref-placeholder" />}
                       <button
                         className="icon-button"
                         type="button"
@@ -1342,20 +1419,19 @@ export function App() {
                 </label>
 
                 <div className="collection-picker">
-                  <div className="size-editor-heading">
+                  <label className="field">
                     <span>Collections</span>
-                    <Tags size={14} />
-                  </div>
-                  {collections.map((collection) => (
-                    <label className="check-row" key={collection.id}>
-                      <input
-                        type="checkbox"
-                        checked={product.collectionIds.includes(collection.id)}
-                        onChange={() => toggleCollection(product.id, collection.id)}
-                      />
-                      <span>{collection.title}</span>
-                    </label>
-                  ))}
+                    <input
+                      value={product.collections}
+                      onChange={(event) => patchProduct(product.id, { collections: event.target.value })}
+                      placeholder="comma, separated, collection names"
+                    />
+                  </label>
+                  {collections.length > 0 && (
+                    <div className="collection-summary">
+                      Available: {collections.map((collection) => collection.title).join(", ")}
+                    </div>
+                  )}
                   {!collections.length && <div className="empty-note">No collections loaded for this shop.</div>}
                 </div>
 
