@@ -945,6 +945,148 @@ async def _publish_product_to_publication(
     return publish_result
 
 
+async def _list_shopify_publications(
+    shop_domain: str,
+    admin_access_token: str | None = None,
+    client_id: str | None = None,
+    client_secret: str | None = None,
+    api_version: str | None = None,
+) -> list[dict[str, Any]]:
+    data = await _call_shopify_admin_graphql(
+        shop_domain,
+        """
+        query VisualOSPublications {
+          publications(first: 100) {
+            nodes {
+              id
+              autoPublish
+              supportsFuturePublishing
+              channels(first: 5) {
+                nodes {
+                  id
+                  name
+                  handle
+                }
+              }
+            }
+          }
+        }
+        """,
+        admin_access_token=admin_access_token,
+        client_id=client_id,
+        client_secret=client_secret,
+        api_version=api_version,
+    )
+    publications = data.get("data", {}).get("publications", {}).get("nodes", []) or []
+    normalized = []
+    for publication in publications:
+        channels = publication.get("channels", {}).get("nodes", []) or []
+        channel_names = [channel.get("name") or channel.get("handle") for channel in channels if channel.get("name") or channel.get("handle")]
+        normalized.append(
+            {
+                "id": publication.get("id"),
+                "name": ", ".join(channel_names) if channel_names else publication.get("id"),
+                "auto_publish": publication.get("autoPublish"),
+                "supports_future_publishing": publication.get("supportsFuturePublishing"),
+                "channels": channels,
+            }
+        )
+    return normalized
+
+
+async def _publish_product_to_all_publications(
+    shop_domain: str,
+    product_id: str,
+    fallback_publication_id: str | None = None,
+    admin_access_token: str | None = None,
+    client_id: str | None = None,
+    client_secret: str | None = None,
+    api_version: str | None = None,
+) -> dict[str, Any]:
+    try:
+        publications = await _list_shopify_publications(
+            shop_domain,
+            admin_access_token=admin_access_token,
+            client_id=client_id,
+            client_secret=client_secret,
+            api_version=api_version,
+        )
+    except HTTPException as exc:
+        detail = exc.detail
+        errors = detail.get("errors") if isinstance(detail, dict) else None
+        if errors and any("Access denied for publications field" in str(error.get("message", "")) for error in errors if isinstance(error, dict)):
+            return {
+                "status": "failed",
+                "reason": "missing_read_publications_scope",
+                "message": "Could not publish to all channels because the app is missing read_publications.",
+                "shopify_error": detail,
+                "publication_ids": [],
+                "publications": [],
+            }
+        raise
+
+    publication_ids = [publication["id"] for publication in publications if publication.get("id")]
+    configured_publication_id = (fallback_publication_id or SHOPIFY_ADMIN_PUBLICATION_ID).strip()
+    if configured_publication_id and configured_publication_id not in publication_ids:
+        publication_ids.append(configured_publication_id)
+        publications.append({"id": configured_publication_id, "name": "Configured publication"})
+
+    if not publication_ids:
+        return {
+            "status": "skipped",
+            "reason": "no_publications",
+            "message": "No Shopify publications/channels were returned for this shop.",
+            "publication_ids": [],
+            "publications": [],
+        }
+
+    data = await _call_shopify_admin_graphql(
+        shop_domain,
+        """
+        mutation PublishProductForVisualOS($id: ID!, $input: [PublicationInput!]!) {
+          publishablePublish(id: $id, input: $input) {
+            publishable {
+              availablePublicationsCount {
+                count
+              }
+              resourcePublicationsCount {
+                count
+              }
+            }
+            userErrors {
+              field
+              message
+            }
+          }
+        }
+        """,
+        {"id": product_id, "input": [{"publicationId": publication_id} for publication_id in publication_ids]},
+        admin_access_token=admin_access_token,
+        client_id=client_id,
+        client_secret=client_secret,
+        api_version=api_version,
+    )
+    publish_result = data.get("data", {}).get("publishablePublish", {})
+    user_errors = publish_result.get("userErrors") or []
+    if user_errors:
+        return {
+            "status": "failed",
+            "reason": "publish_user_errors",
+            "message": "Shopify returned user errors while publishing to channels.",
+            "user_errors": user_errors,
+            "publication_ids": publication_ids,
+            "publications": publications,
+            "result": publish_result,
+        }
+    return {
+        "status": "published",
+        "publication_ids": publication_ids,
+        "publications": publications,
+        "published_count": len(publication_ids),
+        "result": publish_result,
+    }
+
+
 async def _list_shopify_collections(shop: dict[str, Any]) -> list[dict[str, Any]]:
     credentials = _shop_credentials(shop)
     data = await _call_shopify_admin_graphql(
@@ -1337,10 +1479,10 @@ async def _create_shopify_product(shop_domain: str, request: ShopifyProductPubli
     variants = await _create_shopify_product_variants(shop_domain, request, product["id"], size_rows)
     inventory_adjustment = await _set_shopify_inventory_quantities(shop_domain, request, location_id, variants, size_rows)
 
-    publish_result = await _publish_product_to_publication(
+    publish_result = await _publish_product_to_all_publications(
         shop_domain,
         product["id"],
-        publication_id=request.publication_id,
+        fallback_publication_id=request.publication_id,
         admin_access_token=request.admin_access_token,
         client_id=request.shopify_client_id,
         client_secret=request.shopify_client_secret,
@@ -1349,8 +1491,8 @@ async def _create_shopify_product(shop_domain: str, request: ShopifyProductPubli
     return {
         "shop_domain": shop_domain,
         "product": product,
-        "published": bool(publish_result),
-        "publication_configured": bool((request.publication_id or SHOPIFY_ADMIN_PUBLICATION_ID).strip()),
+        "published": publish_result.get("status") == "published",
+        "publication_configured": True,
         "publication": publish_result,
         "location_id": location_id,
         "variants": variants,
@@ -1675,9 +1817,17 @@ async def _publish_one_batch_product(shop_domain: str, request: ShopifyBatchPubl
     )
     result = await _create_shopify_product(shop_domain, publish_request)
     inventory_result = result.get("inventory_adjustment") or {}
+    publication_result = result.get("publication") or {}
+    published = result.get("published", False)
     return {
         "local_id": product.id,
-        "ok": True,
+        "ok": published,
+        "error": None
+        if published
+        else {
+            "message": "Product was created, but publishing to all Shopify channels failed or was skipped.",
+            "publication": publication_result,
+        },
         "product": result.get("product"),
         "variants": result.get("variants", []),
         "variant_count": len(result.get("variants", [])),
@@ -1689,8 +1839,8 @@ async def _publish_one_batch_product(shop_domain: str, request: ShopifyBatchPubl
         "inventory_status": inventory_result.get("status", "unknown"),
         "inventory": inventory_result,
         "location_id": result.get("location_id"),
-        "published": result.get("published", False),
-        "publication": result.get("publication"),
+        "published": published,
+        "publication": publication_result,
     }
 
 

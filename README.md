@@ -36,8 +36,8 @@ GEMINI_API_KEY=...
 
 Shop credentials are stored server-side in `data/shops.json`, which is ignored
 by git. The browser only sends a `shop_id` when publishing; Client ID, Client
-Secret, optional legacy Admin token, and Publication ID are loaded by the
-backend. Inventory location is entered per product, not on the shop.
+Secret, and optional legacy Admin token are loaded by the backend. Inventory
+location is entered per product, not on the shop.
 
 On Vercel, serverless functions cannot persist project-directory files. The app
 defaults shop storage to `/tmp/visualos/shops.json` when `VERCEL` is present,
@@ -64,6 +64,7 @@ read_products
 write_files
 write_inventory
 read_inventory
+read_publications
 write_publications
 read_locations
 ```
@@ -71,6 +72,12 @@ read_locations
 `read_locations` is only needed when you enter a product location name instead of
 a raw `gid://shopify/Location/...`. If no location is available, products and
 variants are still created, but inventory updates are skipped.
+
+`read_publications` and `write_publications` are needed so VisualOS can list all
+available Shopify publications/channels and publish every created product to all
+of them by default. After changing Shopify app scopes, re-authorize/update the
+app installation so Shopify issues a new token whose `scope` value includes the
+new permissions.
 
 ## API
 
@@ -98,7 +105,8 @@ Publishing uses `stagedUploadsCreate` for every ordered local media item, then
 creates the product with `productCreate`, `tags`, and `collectionsToJoin`.
 Variants are created with `productVariantsBulkCreate`, including optional
 `compareAtPrice` for sale pricing, and stock is applied with `inventoryActivate`
-and `inventorySetQuantities` when a location is available.
+and `inventorySetQuantities` when a location is available. After creation, the
+product is published to every publication/channel returned by Shopify.
 
 In the frontend, collection entry is CSV-style. Each collection name or handle is
 matched against the shop's loaded collections before publish. If a collection is

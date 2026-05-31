@@ -47,7 +47,6 @@ type ShopForm = {
   shopify_client_secret: string;
   admin_access_token: string;
   admin_api_version: string;
-  publication_id: string;
 };
 
 type ShopifyCollection = {
@@ -222,8 +221,7 @@ function createShopForm(shop?: Shop): ShopForm {
     shopify_client_id: "",
     shopify_client_secret: "",
     admin_access_token: "",
-    admin_api_version: shop?.admin_api_version || "2026-04",
-    publication_id: shop?.publication_id || ""
+    admin_api_version: shop?.admin_api_version || "2026-04"
   };
 }
 
@@ -1032,14 +1030,6 @@ export function App() {
             <label className="field">
               <span>API version</span>
               <input value={shopForm.admin_api_version} onChange={(event) => setShopForm({ ...shopForm, admin_api_version: event.target.value })} />
-            </label>
-            <label className="field">
-              <span>Publication ID</span>
-              <input
-                value={shopForm.publication_id}
-                onChange={(event) => setShopForm({ ...shopForm, publication_id: event.target.value })}
-                placeholder="Optional gid://shopify/Publication/..."
-              />
             </label>
             <div className="card-actions">
               {editingShopId && (
