@@ -1,16 +1,20 @@
+from __future__ import annotations
+
 import base64
 import hashlib
+import hmac
 import json
 import os
 import re
 import time
+import uuid
 from io import BytesIO
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from google import genai
 from google.genai import types
@@ -43,15 +47,117 @@ SHOPIFY_CLIENT_ID = os.getenv("SHOPIFY_CLIENT_ID", "")
 SHOPIFY_CLIENT_SECRET = os.getenv("SHOPIFY_CLIENT_SECRET", "")
 SHOPIFY_TOKEN_REFRESH_MARGIN_SECONDS = 300
 SHOPIFY_CLIENT_CREDENTIAL_TOKEN_CACHE: dict[str, dict[str, Any]] = {}
+DATA_DIR = PROJECT_ROOT / "data"
+SHOPS_FILE = DATA_DIR / "shops.json"
+SESSION_COOKIE_NAME = "visualos_session"
+SESSION_TTL_SECONDS = int(os.getenv("VISUALOS_SESSION_TTL_SECONDS", str(7 * 24 * 60 * 60)))
+VISUALOS_ADMIN_PIN = os.getenv("VISUALOS_ADMIN_PIN", "1234")
+VISUALOS_SESSION_SECRET = os.getenv("VISUALOS_SESSION_SECRET") or os.getenv("VISUALOS_ADMIN_PIN", "visualos-dev-secret")
+COOKIE_SECURE = os.getenv("VISUALOS_COOKIE_SECURE", "").lower() in {"1", "true", "yes"}
 
 app = FastAPI(title="VisualOS API")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=False,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def _session_signature(payload: str) -> str:
+    return hmac.new(VISUALOS_SESSION_SECRET.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def _encode_session() -> str:
+    payload = {
+        "iat": int(time.time()),
+        "exp": int(time.time()) + SESSION_TTL_SECONDS,
+        "sid": uuid.uuid4().hex,
+    }
+    payload_text = base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode("utf-8")).decode("utf-8").rstrip("=")
+    return f"{payload_text}.{_session_signature(payload_text)}"
+
+
+def _decode_session(token: str | None) -> dict[str, Any] | None:
+    if not token or "." not in token:
+        return None
+    payload_text, signature = token.rsplit(".", 1)
+    if not hmac.compare_digest(_session_signature(payload_text), signature):
+        return None
+    try:
+        padded_payload = payload_text + "=" * (-len(payload_text) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(padded_payload.encode("utf-8")))
+    except (ValueError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict) or int(payload.get("exp", 0)) < int(time.time()):
+        return None
+    return payload
+
+
+def require_auth(request: Request) -> dict[str, Any]:
+    session = _decode_session(request.cookies.get(SESSION_COOKIE_NAME))
+    if not session:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    return session
+
+
+def _shop_public(shop: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": shop.get("id", ""),
+        "name": shop.get("name", ""),
+        "shop_domain": shop.get("shop_domain", ""),
+        "admin_api_version": shop.get("admin_api_version", SHOPIFY_ADMIN_API_VERSION),
+        "location_id": shop.get("location_id", ""),
+        "publication_id": shop.get("publication_id", ""),
+        "has_client_id": bool(shop.get("shopify_client_id")),
+        "has_client_secret": bool(shop.get("shopify_client_secret")),
+        "has_legacy_token": bool(shop.get("admin_access_token")),
+    }
+
+
+def _ensure_data_dir() -> None:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _read_shops() -> list[dict[str, Any]]:
+    if not SHOPS_FILE.exists():
+        return []
+    try:
+        data = json.loads(SHOPS_FILE.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return []
+    return data if isinstance(data, list) else []
+
+
+def _write_shops(shops: list[dict[str, Any]]) -> None:
+    _ensure_data_dir()
+    SHOPS_FILE.write_text(json.dumps(shops, indent=2), encoding="utf-8")
+
+
+def _shop_from_request(request: ShopWriteRequest, existing: dict[str, Any] | None = None) -> dict[str, Any]:
+    shop_domain = _normalize_shop_domain(request.shop_domain)
+    existing = existing or {}
+    return {
+        "id": existing.get("id") or uuid.uuid4().hex,
+        "name": request.name.strip(),
+        "shop_domain": shop_domain,
+        "shopify_client_id": request.shopify_client_id.strip() or existing.get("shopify_client_id", ""),
+        "shopify_client_secret": request.shopify_client_secret.strip() or existing.get("shopify_client_secret", ""),
+        "admin_access_token": request.admin_access_token.strip() or existing.get("admin_access_token", ""),
+        "admin_api_version": request.admin_api_version.strip() or existing.get("admin_api_version", SHOPIFY_ADMIN_API_VERSION),
+        "location_id": request.location_id.strip() or existing.get("location_id", ""),
+        "publication_id": request.publication_id.strip() or existing.get("publication_id", ""),
+        "created_at": existing.get("created_at") or int(time.time()),
+        "updated_at": int(time.time()),
+    }
+
+
+def _get_shop_private(shop_id: str) -> dict[str, Any]:
+    shop = next((item for item in _read_shops() if item.get("id") == shop_id), None)
+    if not shop:
+        raise HTTPException(status_code=404, detail="Shop not found.")
+    return shop
 
 
 class ShopifyMcpTestRequest(BaseModel):
@@ -84,6 +190,9 @@ class ShopifyProductPublishRequest(BaseModel):
     branch: str | None = None
     price: float | None = None
     sizes: list[ShopifyProductSizeQuantity] = Field(default_factory=list)
+    media_urls: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    collection_ids: list[str] = Field(default_factory=list)
 
 
 class ProductMetadataRequest(BaseModel):
@@ -91,11 +200,41 @@ class ProductMetadataRequest(BaseModel):
     mime_type: str = "image/png"
     sku: str = ""
     hints: str = ""
+    title_prompt: str = ""
+    description_prompt: str = ""
+
+
+class LoginRequest(BaseModel):
+    pin: str = Field(..., min_length=4, max_length=4)
+
+
+class ShopWriteRequest(BaseModel):
+    name: str = Field(..., min_length=1)
+    shop_domain: str = Field(..., min_length=1)
+    shopify_client_id: str = ""
+    shopify_client_secret: str = ""
+    admin_access_token: str = ""
+    admin_api_version: str = ""
+    location_id: str = ""
+    publication_id: str = ""
+
+
+class CollectionCreateRequest(BaseModel):
+    title: str = Field(..., min_length=1)
+    description: str = ""
+
+
+class PublishMediaItem(BaseModel):
+    id: str = Field(..., min_length=1)
+    kind: str = "uploaded"
+    filename: str = "product-image.jpg"
+    mime_type: str = "image/jpeg"
+    image_base64: str = Field(..., min_length=1)
 
 
 class ShopifyBatchProduct(BaseModel):
     id: str = Field(..., min_length=1)
-    generated_image_base64: str = Field(..., min_length=1)
+    generated_image_base64: str = ""
     generated_image_mime_type: str = "image/png"
     title: str = Field(..., min_length=1)
     description: str = ""
@@ -103,16 +242,13 @@ class ShopifyBatchProduct(BaseModel):
     branch: str | None = None
     price: float | None = None
     sizes: list[ShopifyProductSizeQuantity] = Field(default_factory=list)
+    media_items: list[PublishMediaItem] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    collection_ids: list[str] = Field(default_factory=list)
 
 
 class ShopifyBatchPublishRequest(BaseModel):
-    shop_domain: str = Field(..., min_length=1)
-    shopify_client_id: str | None = None
-    shopify_client_secret: str | None = None
-    admin_access_token: str | None = None
-    admin_api_version: str | None = None
-    location_id: str | None = None
-    publication_id: str | None = None
+    shop_id: str = Field(..., min_length=1)
     products: list[ShopifyBatchProduct] = Field(default_factory=list)
 
 
@@ -121,8 +257,95 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.post("/api/auth/login")
+def login(request: LoginRequest, response: Response) -> dict[str, bool]:
+    if not hmac.compare_digest(request.pin, VISUALOS_ADMIN_PIN):
+        raise HTTPException(status_code=401, detail="Invalid PIN.")
+    response.set_cookie(
+        SESSION_COOKIE_NAME,
+        _encode_session(),
+        max_age=SESSION_TTL_SECONDS,
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite="lax",
+        path="/",
+    )
+    return {"authenticated": True}
+
+
+@app.post("/api/auth/logout")
+def logout(response: Response) -> dict[str, bool]:
+    response.delete_cookie(SESSION_COOKIE_NAME, path="/")
+    return {"authenticated": False}
+
+
+@app.get("/api/auth/session")
+def session(request: Request) -> dict[str, bool]:
+    return {"authenticated": _decode_session(request.cookies.get(SESSION_COOKIE_NAME)) is not None}
+
+
+@app.get("/api/shops")
+def list_shops(_session: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:
+    return {"shops": [_shop_public(shop) for shop in _read_shops()]}
+
+
+@app.post("/api/shops")
+def create_shop(request: ShopWriteRequest, _session: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:
+    shops = _read_shops()
+    shop = _shop_from_request(request)
+    if not shop["name"]:
+        raise HTTPException(status_code=400, detail="Shop display name is required.")
+    if any(item.get("shop_domain") == shop["shop_domain"] for item in shops):
+        raise HTTPException(status_code=400, detail="A shop with this domain already exists.")
+    shops.append(shop)
+    _write_shops(shops)
+    return {"shop": _shop_public(shop)}
+
+
+@app.put("/api/shops/{shop_id}")
+def update_shop(shop_id: str, request: ShopWriteRequest, _session: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:
+    shops = _read_shops()
+    existing_index = next((index for index, item in enumerate(shops) if item.get("id") == shop_id), None)
+    if existing_index is None:
+        raise HTTPException(status_code=404, detail="Shop not found.")
+    shop = _shop_from_request(request, shops[existing_index])
+    if not shop["name"]:
+        raise HTTPException(status_code=400, detail="Shop display name is required.")
+    if any(item.get("id") != shop_id and item.get("shop_domain") == shop["shop_domain"] for item in shops):
+        raise HTTPException(status_code=400, detail="A shop with this domain already exists.")
+    shops[existing_index] = shop
+    _write_shops(shops)
+    return {"shop": _shop_public(shop)}
+
+
+@app.delete("/api/shops/{shop_id}")
+def delete_shop(shop_id: str, _session: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:
+    shops = _read_shops()
+    next_shops = [shop for shop in shops if shop.get("id") != shop_id]
+    if len(next_shops) == len(shops):
+        raise HTTPException(status_code=404, detail="Shop not found.")
+    _write_shops(next_shops)
+    return {"deleted": True}
+
+
+@app.get("/api/shops/{shop_id}/collections")
+async def list_shop_collections(shop_id: str, _session: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:
+    shop = _get_shop_private(shop_id)
+    return {"collections": await _list_shopify_collections(shop)}
+
+
+@app.post("/api/shops/{shop_id}/collections")
+async def create_shop_collection(
+    shop_id: str,
+    request: CollectionCreateRequest,
+    _session: dict[str, Any] = Depends(require_auth),
+) -> dict[str, Any]:
+    shop = _get_shop_private(shop_id)
+    return {"collection": await _create_shopify_collection(shop, request)}
+
+
 @app.get("/api/config")
-def style_config() -> dict[str, Any]:
+def style_config(_session: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:
     return load_style_config()
 
 
@@ -357,6 +580,17 @@ def _check_shopify_user_errors(errors: list[dict[str, Any]] | None, operation: s
 
 def _format_variant_price(price: float | None) -> str:
     return f"{price or 0:.2f}"
+
+
+def _shop_credentials(shop: dict[str, Any]) -> dict[str, str]:
+    return {
+        "admin_access_token": shop.get("admin_access_token", ""),
+        "shopify_client_id": shop.get("shopify_client_id", ""),
+        "shopify_client_secret": shop.get("shopify_client_secret", ""),
+        "admin_api_version": shop.get("admin_api_version", SHOPIFY_ADMIN_API_VERSION),
+        "location_id": shop.get("location_id", ""),
+        "publication_id": shop.get("publication_id", ""),
+    }
 
 
 def _decode_base64_image(image_base64: str) -> bytes:
@@ -683,6 +917,64 @@ async def _publish_product_to_publication(
     return publish_result
 
 
+async def _list_shopify_collections(shop: dict[str, Any]) -> list[dict[str, Any]]:
+    credentials = _shop_credentials(shop)
+    data = await _call_shopify_admin_graphql(
+        shop["shop_domain"],
+        """
+        query VisualOSCollections {
+          collections(first: 100, sortKey: TITLE) {
+            nodes {
+              id
+              title
+              handle
+              updatedAt
+            }
+          }
+        }
+        """,
+        admin_access_token=credentials["admin_access_token"],
+        client_id=credentials["shopify_client_id"],
+        client_secret=credentials["shopify_client_secret"],
+        api_version=credentials["admin_api_version"],
+    )
+    return data.get("data", {}).get("collections", {}).get("nodes", []) or []
+
+
+async def _create_shopify_collection(shop: dict[str, Any], request: CollectionCreateRequest) -> dict[str, Any]:
+    credentials = _shop_credentials(shop)
+    data = await _call_shopify_admin_graphql(
+        shop["shop_domain"],
+        """
+        mutation VisualOSCollectionCreate($input: CollectionInput!) {
+          collectionCreate(input: $input) {
+            collection {
+              id
+              title
+              handle
+              updatedAt
+            }
+            userErrors {
+              field
+              message
+            }
+          }
+        }
+        """,
+        {"input": {"title": request.title.strip(), "descriptionHtml": request.description.strip()}},
+        admin_access_token=credentials["admin_access_token"],
+        client_id=credentials["shopify_client_id"],
+        client_secret=credentials["shopify_client_secret"],
+        api_version=credentials["admin_api_version"],
+    )
+    result = data.get("data", {}).get("collectionCreate", {})
+    _check_shopify_user_errors(result.get("userErrors"), "create collection")
+    collection = result.get("collection")
+    if not collection:
+        raise HTTPException(status_code=502, detail={"message": "Shopify did not return a created collection.", "response": data})
+    return collection
+
+
 async def _create_shopify_base_product(
     shop_domain: str,
     request: ShopifyProductPublishRequest,
@@ -699,13 +991,21 @@ async def _create_shopify_base_product(
             }
         ],
     }
+    if request.tags:
+        product_input["tags"] = request.tags
+    if request.collection_ids:
+        product_input["collectionsToJoin"] = request.collection_ids
+
     media = []
-    if request.img.strip():
+    media_sources = request.media_urls or ([request.img.strip()] if request.img.strip() else [])
+    for index, media_url in enumerate(media_sources):
+        if not media_url:
+            continue
         media.append(
             {
                 "mediaContentType": "IMAGE",
-                "originalSource": request.img.strip(),
-                "alt": request.title.strip(),
+                "originalSource": media_url,
+                "alt": request.title.strip() if index == 0 else f"{request.title.strip()} image {index + 1}",
             }
         )
 
@@ -732,7 +1032,7 @@ async def _create_shopify_base_product(
               }
               onlineStoreUrl
               onlineStorePreviewUrl
-              media(first: 5) {
+              media(first: 20) {
                 nodes {
                   id
                   alt
@@ -1115,6 +1415,7 @@ async def generate(
     product_images: list[UploadFile] = File(default=[]),
     model_images: list[UploadFile] = File(default=[]),
     reference_images: list[UploadFile] = File(default=[]),
+    _session: dict[str, Any] = Depends(require_auth),
 ) -> dict[str, Any]:
     if not initial_prompt.strip():
         raise HTTPException(status_code=400, detail="initial_prompt is required.")
@@ -1167,6 +1468,7 @@ async def generate_product_image(
     sku: str = Form(""),
     image_mode: str = Form("photoshoot"),
     user_hints: str = Form(""),
+    prompt_template: str = Form(""),
     style_genre: str = Form("high_end_ecommerce"),
     moodboard_grading: str = Form("flash_editorial"),
     framing: str = Form("full_body"),
@@ -1178,6 +1480,7 @@ async def generate_product_image(
     size: str = Form("1K"),
     aspect_ratio: str = Form("1:1"),
     product_images: list[UploadFile] = File(default=[]),
+    _session: dict[str, Any] = Depends(require_auth),
 ) -> dict[str, Any]:
     mode = image_mode.strip().lower()
     if mode not in {"photoshoot", "flat_lay"}:
@@ -1188,7 +1491,13 @@ async def generate_product_image(
     product_refs = await _read_references(product_images, "product")
     product_names = ", ".join(f"({ref['name']})" for ref in product_refs)
     hint_text = user_hints.strip()
-    if mode == "flat_lay":
+    if prompt_template.strip():
+        initial_prompt = prompt_template.strip().format(
+            sku=sku or "unspecified",
+            product_references=product_names,
+            notes=hint_text or "none",
+        )
+    elif mode == "flat_lay":
         initial_prompt = (
             f"Create a clean premium e-commerce flat-lay image for SKU {sku or 'unspecified'}. "
             f"Use product references {product_names}. Arrange the product naturally from a true overhead angle on a refined neutral surface. "
@@ -1204,7 +1513,7 @@ async def generate_product_image(
             f"Use product references {product_names}. Preserve the product identity, materials, silhouette, colors, and design details. "
             "Make it polished, realistic, commercial, and ready for an e-commerce product page."
         )
-    if hint_text:
+    if hint_text and not prompt_template.strip():
         initial_prompt = f"{initial_prompt} User notes: {hint_text}"
 
     graph = build_graph()
@@ -1244,7 +1553,10 @@ async def generate_product_image(
 
 
 @app.post("/api/products/generate-metadata")
-async def generate_product_metadata(request: ProductMetadataRequest) -> dict[str, str]:
+async def generate_product_metadata(
+    request: ProductMetadataRequest,
+    _session: dict[str, Any] = Depends(require_auth),
+) -> dict[str, str]:
     image_bytes = _decode_base64_image(request.image_base64)
     try:
         image = Image.open(BytesIO(image_bytes))
@@ -1259,6 +1571,8 @@ Requirements:
 - Title should be concise, searchable, and product-page ready.
 - Description should be 2-4 polished sentences focused on visible product features.
 - Do not invent brand names, materials, sizes, or claims that are not visually supported.
+- Title prompt: {request.title_prompt or "Use a concise SEO-friendly product title."}
+- Description prompt: {request.description_prompt or "Describe visible product features in polished Shopify product-page copy."}
 - SKU/context: {request.sku or "unspecified"}
 - User hints: {request.hints or "none"}"""
     client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
@@ -1275,33 +1589,55 @@ Requirements:
 
 
 async def _publish_one_batch_product(shop_domain: str, request: ShopifyBatchPublishRequest, product: ShopifyBatchProduct) -> dict[str, Any]:
-    image_bytes = _decode_base64_image(product.generated_image_base64)
-    filename = _safe_filename(product.sku, product.generated_image_mime_type)
-    media_upload = await _upload_shopify_product_image(
-        shop_domain,
-        image_bytes,
-        product.generated_image_mime_type,
-        filename,
-        admin_access_token=request.admin_access_token,
-        client_id=request.shopify_client_id,
-        client_secret=request.shopify_client_secret,
-        api_version=request.admin_api_version,
-    )
+    shop = _get_shop_private(request.shop_id)
+    credentials = _shop_credentials(shop)
+    media_items = product.media_items
+    if not media_items and product.generated_image_base64:
+        media_items = [
+            PublishMediaItem(
+                id="generated",
+                kind="generated",
+                filename=_safe_filename(product.sku, product.generated_image_mime_type),
+                mime_type=product.generated_image_mime_type,
+                image_base64=product.generated_image_base64,
+            )
+        ]
+    if not media_items:
+        raise HTTPException(status_code=400, detail="At least one media item is required.")
+
+    media_uploads = []
+    for index, media_item in enumerate(media_items):
+        filename = _safe_filename(media_item.filename or f"{product.sku}-{index + 1}", media_item.mime_type)
+        media_uploads.append(
+            await _upload_shopify_product_image(
+                shop_domain,
+                _decode_base64_image(media_item.image_base64),
+                media_item.mime_type,
+                filename,
+                admin_access_token=credentials["admin_access_token"],
+                client_id=credentials["shopify_client_id"],
+                client_secret=credentials["shopify_client_secret"],
+                api_version=credentials["admin_api_version"],
+            )
+        )
     publish_request = ShopifyProductPublishRequest(
         shop_domain=shop_domain,
-        shopify_client_id=request.shopify_client_id,
-        shopify_client_secret=request.shopify_client_secret,
-        admin_access_token=request.admin_access_token,
-        admin_api_version=request.admin_api_version,
-        location_id=request.location_id,
-        publication_id=request.publication_id,
-        img=media_upload["resource_url"],
+        shopify_client_id=credentials["shopify_client_id"],
+        shopify_client_secret=credentials["shopify_client_secret"],
+        admin_access_token=credentials["admin_access_token"],
+        admin_api_version=credentials["admin_api_version"],
+        location_id=credentials["location_id"],
+        publication_id=credentials["publication_id"],
+        img=media_uploads[0]["resource_url"],
+        media_urls=[item["resource_url"] for item in media_uploads],
         desc=product.description,
         title=product.title,
         sku=product.sku,
         branch=product.branch,
         price=product.price,
         sizes=product.sizes,
+        tags=product.tags,
+        collection_ids=product.collection_ids,
     )
     result = await _create_shopify_product(shop_domain, publish_request)
     inventory_result = result.get("inventory_adjustment") or {}
@@ -1311,8 +1647,11 @@ async def _publish_one_batch_product(shop_domain: str, request: ShopifyBatchPubl
         "product": result.get("product"),
         "variants": result.get("variants", []),
         "variant_count": len(result.get("variants", [])),
-        "media_upload": media_upload,
+        "media_uploads": media_uploads,
         "media_status": "uploaded",
+        "media_count": len(media_uploads),
+        "tags": product.tags,
+        "collection_ids": product.collection_ids,
         "inventory_status": inventory_result.get("status", "unknown"),
         "inventory": inventory_result,
         "location_id": result.get("location_id"),
@@ -1322,8 +1661,12 @@ async def _publish_one_batch_product(shop_domain: str, request: ShopifyBatchPubl
 
 
 @app.post("/api/products/publish-batch")
-async def publish_product_batch(request: ShopifyBatchPublishRequest) -> dict[str, Any]:
-    shop_domain = _normalize_shop_domain(request.shop_domain)
+async def publish_product_batch(
+    request: ShopifyBatchPublishRequest,
+    _session: dict[str, Any] = Depends(require_auth),
+) -> dict[str, Any]:
+    shop = _get_shop_private(request.shop_id)
+    shop_domain = _normalize_shop_domain(shop["shop_domain"])
     if not request.products:
         raise HTTPException(status_code=400, detail="At least one approved product is required.")
 
@@ -1360,7 +1703,10 @@ async def publish_product_batch(request: ShopifyBatchPublishRequest) -> dict[str
 
 
 @app.post("/api/shopify-mcp/test")
-async def test_shopify_mcp(request: ShopifyMcpTestRequest) -> dict[str, Any]:
+async def test_shopify_mcp(
+    request: ShopifyMcpTestRequest,
+    _session: dict[str, Any] = Depends(require_auth),
+) -> dict[str, Any]:
     shop_domain = _normalize_shop_domain(request.shop_domain)
     test_payload = _json_rpc_payload("tools/list")
 
@@ -1385,7 +1731,10 @@ async def test_shopify_mcp(request: ShopifyMcpTestRequest) -> dict[str, Any]:
 
 
 @app.post("/api/shopify-mcp/call")
-async def call_shopify_mcp(request: ShopifyMcpCallRequest) -> dict[str, Any]:
+async def call_shopify_mcp(
+    request: ShopifyMcpCallRequest,
+    _session: dict[str, Any] = Depends(require_auth),
+) -> dict[str, Any]:
     shop_domain = _normalize_shop_domain(request.shop_domain)
     tool = request.tool.strip()
     endpoint_type = SHOPIFY_TOOL_ENDPOINTS.get(tool)
@@ -1413,6 +1762,9 @@ async def call_shopify_mcp(request: ShopifyMcpCallRequest) -> dict[str, Any]:
 
 
 @app.post("/api/shopify-admin/products")
-async def publish_shopify_product(request: ShopifyProductPublishRequest) -> dict[str, Any]:
+async def publish_shopify_product(
+    request: ShopifyProductPublishRequest,
+    _session: dict[str, Any] = Depends(require_auth),
+) -> dict[str, Any]:
     shop_domain = _normalize_shop_domain(request.shop_domain)
     return await _create_shopify_product(shop_domain, request)
